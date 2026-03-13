@@ -180,6 +180,75 @@ input:focus {
   border: 1px solid #2e4a5a;
 }
 
+/* Display controls panel */
+.display-panel {
+  margin: 10px 14px 0;
+  padding: 10px 11px;
+  background: #202020;
+  border: 1px solid #2e2e2e;
+  border-radius: 6px;
+}
+
+.display-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.control-row:last-child {
+  margin-bottom: 0;
+}
+
+.control-name {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.step-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  background: #2a2a2a;
+  color: #e5e5e5;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+}
+
+.step-btn:hover {
+  background: #3a3a3a;
+}
+
+.step-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  min-width: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Status panel */
 .status-panel {
   margin: 10px 14px 0;

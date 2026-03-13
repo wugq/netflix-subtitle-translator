@@ -21,6 +21,22 @@ let isTranslating = false;
 let overlaySegments = [];
 let overlayEl = null;
 let rafId = null;
+let subtitleFontSize = 24;
+let subtitleBottom   = 8;
+
+// Load persisted display settings and watch for changes from popup
+browser.storage.local.get(['subtitleFontSize', 'subtitleBottom']).then(r => {
+  if (r.subtitleFontSize) subtitleFontSize = r.subtitleFontSize;
+  if (r.subtitleBottom   != null) subtitleBottom = r.subtitleBottom;
+  applyOverlayStyle();
+});
+
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if ('subtitleFontSize' in changes) subtitleFontSize = changes.subtitleFontSize.newValue;
+  if ('subtitleBottom'   in changes) subtitleBottom   = changes.subtitleBottom.newValue;
+  applyOverlayStyle();
+});
 
 // ---------------------------------------------------------------------------
 // 3. TTML parsing (runs in content script — DOMParser works here for sure)
@@ -74,6 +90,8 @@ function parseTtml(xmlString) {
       text,
     });
   }
+  // Ensure sorted by begin time — binary search requires it
+  segments.sort((a, b) => a.begin - b.begin);
   return segments;
 }
 
@@ -245,6 +263,14 @@ function hideNetflixSubtitles() {
   LOG('Netflix original subtitles hidden');
 }
 
+function applyOverlayStyle() {
+  if (!overlayEl) return;
+  overlayEl.style.bottom = subtitleBottom + '%';
+  // Re-render current subtitle so font size takes effect immediately
+  const inner = overlayEl.querySelector('div');
+  if (inner) inner.style.fontSize = subtitleFontSize + 'px';
+}
+
 function ensureOverlay() {
   if (overlayEl) return;
   hideNetflixSubtitles();
@@ -253,7 +279,6 @@ function ensureOverlay() {
   overlayEl.id = 'nst-overlay';
   overlayEl.style.cssText = `
     position: fixed;
-    bottom: 8%;
     left: 50%;
     transform: translateX(-50%);
     z-index: 2147483647;
@@ -261,17 +286,14 @@ function ensureOverlay() {
     text-align: center;
     max-width: 80vw;
   `;
+  applyOverlayStyle();
   document.body.appendChild(overlayEl);
 
+  // Re-parent into the fullscreen element so it stays visible.
+  // Always keep position:fixed — it stays relative to the viewport in fullscreen too.
   document.addEventListener('fullscreenchange', () => {
     const fs = document.fullscreenElement;
-    if (fs && overlayEl) {
-      fs.appendChild(overlayEl);
-      overlayEl.style.position = 'absolute';
-    } else if (overlayEl) {
-      document.body.appendChild(overlayEl);
-      overlayEl.style.position = 'fixed';
-    }
+    (fs || document.body).appendChild(overlayEl);
   });
 }
 
@@ -285,7 +307,7 @@ function renderSubtitle(text) {
   });
   overlayEl.innerHTML = `<div style="
     display:inline-block;background:rgba(0,0,0,0.75);color:#fff;
-    font-size:1.4vw;font-family:'Netflix Sans',Arial,sans-serif;
+    font-size:${subtitleFontSize}px;font-family:'Netflix Sans',Arial,sans-serif;
     font-weight:500;line-height:1.5;padding:4px 12px 6px;
     border-radius:3px;white-space:pre-wrap;
   ">${lines.join('<br>')}</div>`;

@@ -112,6 +112,67 @@ openOptionsBtn.addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Subtitle display controls
+// ---------------------------------------------------------------------------
+const FONT_MIN = 12, FONT_MAX = 96, FONT_STEP = 2;
+const POS_MIN  = 0,  POS_MAX  = 90, POS_STEP  = 2;
+const DEFAULTS = { subtitleFontSize: 24, subtitleBottom: 8 };
+
+const fontVal = document.getElementById('fontVal');
+const posVal  = document.getElementById('posVal');
+
+let settings = { ...DEFAULTS };
+
+function applySettings() {
+  fontVal.textContent = settings.subtitleFontSize + 'px';
+  posVal.textContent  = settings.subtitleBottom + '%';
+  browser.storage.local.set({
+    subtitleFontSize: settings.subtitleFontSize,
+    subtitleBottom:   settings.subtitleBottom,
+  });
+}
+
+// Load saved settings
+browser.storage.local.get(['subtitleFontSize', 'subtitleBottom']).then(r => {
+  settings.subtitleFontSize = r.subtitleFontSize ?? DEFAULTS.subtitleFontSize;
+  settings.subtitleBottom   = r.subtitleBottom   ?? DEFAULTS.subtitleBottom;
+  fontVal.textContent = settings.subtitleFontSize + 'px';
+  posVal.textContent  = settings.subtitleBottom + '%';
+});
+
+// Hold-to-repeat: fires once immediately, then accelerates after a delay
+function bindStepper(btnId, action) {
+  const btn = document.getElementById(btnId);
+  let timeout, interval;
+
+  function step() { action(); applySettings(); }
+
+  function start() {
+    step();
+    timeout = setTimeout(() => {
+      interval = setInterval(step, 80);
+    }, 400);
+  }
+
+  function stop() {
+    clearTimeout(timeout);
+    clearInterval(interval);
+  }
+
+  btn.addEventListener('mousedown', start);
+  btn.addEventListener('mouseup', stop);
+  btn.addEventListener('mouseleave', stop);
+  // Touch support
+  btn.addEventListener('touchstart', e => { e.preventDefault(); start(); });
+  btn.addEventListener('touchend', stop);
+}
+
+bindStepper('fontDown', () => { settings.subtitleFontSize = Math.max(FONT_MIN, settings.subtitleFontSize - FONT_STEP); });
+bindStepper('fontUp',   () => { settings.subtitleFontSize = Math.min(FONT_MAX, settings.subtitleFontSize + FONT_STEP); });
+bindStepper('posDown',  () => { settings.subtitleBottom   = Math.max(POS_MIN,  settings.subtitleBottom   - POS_STEP);  });
+bindStepper('posUp',    () => { settings.subtitleBottom   = Math.min(POS_MAX,  settings.subtitleBottom   + POS_STEP);  });
+
+// ---------------------------------------------------------------------------
 // Translation status panel
 // ---------------------------------------------------------------------------
 const statusRow = document.getElementById('statusRow');
