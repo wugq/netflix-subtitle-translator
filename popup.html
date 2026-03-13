@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Netflix Subtitle Translator</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <img src="icons/icon.svg" alt="" class="logo" />
+    <div>
+      <h1>Subtitle Translator</h1>
+      <span id="statusBadge" class="badge badge-unconfigured">Not configured</span>
+    </div>
+  </header>
+
+  <section class="field">
+    <label for="apiKey">OpenAI API Key</label>
+    <div class="input-row">
+      <input
+        type="password"
+        id="apiKey"
+        placeholder="sk-..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button id="toggleVisibility" class="btn-icon" title="Show/hide key">
+        <svg id="eyeIcon" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+          <path d="M10 3C5 3 1.73 7.11 1.05 10c.68 2.89 3.95 7 8.95 7s8.27-4.11 8.95-7C18.27 7.11 15 3 10 3zm0 12a5 5 0 110-10 5 5 0 010 10zm0-8a3 3 0 100 6 3 3 0 000-6z"/>
+        </svg>
+      </button>
+    </div>
+  </section>
+
+  <div class="btn-row">
+    <button id="saveBtn" class="btn btn-primary">Save</button>
+    <button id="testBtn" class="btn btn-secondary">Test</button>
+  </div>
+
+  <div id="feedback" class="feedback hidden"></div>
+
+  <section class="status-panel">
+    <div class="status-label">Translation status</div>
+    <div id="statusRow" class="status-row state-idle">
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText" class="status-text">Waiting for Netflix…</span>
+    </div>
+    <div id="statusTime" class="status-time"></div>
+  </section>
+
+  <footer>
+    <button id="openOptions" class="link-btn">Open full settings</button>
+    <div class="pin-hint">
+      Tip: Right-click the toolbar to <strong>Pin to Toolbar</strong>
+    </div>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

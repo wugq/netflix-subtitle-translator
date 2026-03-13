@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Netflix Subtitle Translator — Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Netflix Subtitle Translator</h1>
+    <p class="subtitle">Auto-translates English subtitles to Simplified Chinese using OpenAI GPT.</p>
+
+    <section class="card">
+      <h2>OpenAI API Key</h2>
+      <div class="field">
+        <label for="apiKey">API Key</label>
+        <input
+          type="password"
+          id="apiKey"
+          placeholder="sk-..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+      <div class="actions">
+        <button id="saveBtn" class="btn btn-primary">Save</button>
+        <button id="testBtn" class="btn btn-secondary">Test Key</button>
+      </div>
+      <div id="status" class="status hidden"></div>
+    </section>
+
+    <section class="card info">
+      <h2>How It Works</h2>
+      <ol>
+        <li>Open a Netflix show — English subtitles will be auto-enabled.</li>
+        <li>The extension intercepts the subtitle file and translates it via GPT.</li>
+        <li>Chinese subtitles appear in the Netflix player.</li>
+      </ol>
+      <p class="note">Your API key is stored locally in your browser and never sent anywhere except OpenAI.</p>
+    </section>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
