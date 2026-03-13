@@ -11,6 +11,33 @@ browser.storage.local.get('openaiApiKey').then(r => {
   statusBadge.className   = hasKey ? 'badge badge-configured' : 'badge badge-unconfigured';
 });
 
+// ---------------------------------------------------------------------------
+// Translation toggle
+// ---------------------------------------------------------------------------
+const toggleBtn = document.getElementById('toggleTranslation');
+let translationEnabled = true;
+
+function updateToggleBtn() {
+  if (translationEnabled) {
+    toggleBtn.textContent = 'Stop Translation';
+    toggleBtn.className   = 'toggle-btn';
+  } else {
+    toggleBtn.textContent = 'Resume Translation';
+    toggleBtn.className   = 'toggle-btn paused';
+  }
+}
+
+browser.storage.local.get('translationEnabled').then(r => {
+  translationEnabled = r.translationEnabled !== false; // default true
+  updateToggleBtn();
+});
+
+toggleBtn.addEventListener('click', () => {
+  translationEnabled = !translationEnabled;
+  browser.storage.local.set({ translationEnabled });
+  updateToggleBtn();
+});
+
 // Open full options page
 openOptionsBtn.addEventListener('click', () => {
   browser.runtime.openOptionsPage();

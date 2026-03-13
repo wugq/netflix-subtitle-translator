@@ -27,28 +27,36 @@ let isWindowTranslating = false;  // guard against concurrent window translation
 let translationGen      = 0;      // increment on seek to cancel in-flight translations
 let nextWindowStart     = 0;      // seconds — start of next untranslated window
 let windowMinutes       = 5;      // configurable via popup
+let originalSegments    = [];     // [{begin, end, text}] — always the original English
 let overlaySegments     = [];     // [{begin, end, text}] — may be English or Chinese
 let translated          = [];     // boolean[] parallel to overlaySegments
 let overlayEl           = null;
 let rafId               = null;
 let videoEl             = null;
+let seekedHandler       = null;  // tracked so we can remove it before re-adding
 
-let subtitleFontSize = 24;
-let subtitleBottom   = 8;
+let subtitleFontSize    = 24;
+let subtitleBottom      = 8;
+let translationEnabled  = true;
 
 // Load persisted settings
-browser.storage.local.get(['subtitleFontSize', 'subtitleBottom', 'windowMinutes']).then(r => {
-  if (r.subtitleFontSize != null) subtitleFontSize = r.subtitleFontSize;
-  if (r.subtitleBottom   != null) subtitleBottom   = r.subtitleBottom;
-  if (r.windowMinutes    != null) windowMinutes     = r.windowMinutes;
+browser.storage.local.get(['subtitleFontSize', 'subtitleBottom', 'windowMinutes', 'translationEnabled']).then(r => {
+  if (r.subtitleFontSize   != null) subtitleFontSize   = r.subtitleFontSize;
+  if (r.subtitleBottom     != null) subtitleBottom     = r.subtitleBottom;
+  if (r.windowMinutes      != null) windowMinutes      = r.windowMinutes;
+  if (r.translationEnabled != null) translationEnabled = r.translationEnabled;
   applyOverlayStyle();
 });
 
 browser.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if ('subtitleFontSize' in changes) subtitleFontSize = changes.subtitleFontSize.newValue;
-  if ('subtitleBottom'   in changes) subtitleBottom   = changes.subtitleBottom.newValue;
-  if ('windowMinutes'    in changes) windowMinutes    = changes.windowMinutes.newValue;
+  if ('subtitleFontSize'   in changes) subtitleFontSize = changes.subtitleFontSize.newValue;
+  if ('subtitleBottom'     in changes) subtitleBottom   = changes.subtitleBottom.newValue;
+  if ('windowMinutes'      in changes) windowMinutes    = changes.windowMinutes.newValue;
+  if ('translationEnabled' in changes) {
+    translationEnabled = changes.translationEnabled.newValue;
+    applyTranslationEnabled();
+  }
   applyOverlayStyle();
 });
 
@@ -305,8 +313,9 @@ window.addEventListener('nst_tracks', async (e) => {
   }
 
   // Set up state — all segments start as English
-  overlaySegments = segments.map(s => ({ ...s }));
-  translated      = new Array(segments.length).fill(false);
+  originalSegments = segments.map(s => ({ ...s }));
+  overlaySegments  = segments.map(s => ({ ...s }));
+  translated       = new Array(segments.length).fill(false);
 
   ensureOverlay();
 
@@ -322,7 +331,7 @@ window.addEventListener('nst_tracks', async (e) => {
     videoEl = document.querySelector('video'); // refresh in case it wasn't ready
     LOG(`Starting translation from ${fmt(startTime)}`);
     nextWindowStart = startTime;
-    initialTranslation(startTime);
+    if (translationEnabled) initialTranslation(startTime);
   });
 });
 
@@ -362,6 +371,17 @@ function waitForPlaybackStart() {
 // ---------------------------------------------------------------------------
 // 8. Overlay
 // ---------------------------------------------------------------------------
+function applyTranslationEnabled() {
+  if (translationEnabled) {
+    // Restart translation from current position; reuses already-translated segments
+    if (videoEl) initialTranslation(videoEl.currentTime);
+  } else {
+    // Cancel any in-flight translation — tick loop will render originalSegments
+    translationGen++;
+    isWindowTranslating = false;
+  }
+}
+
 function hideNetflixSubtitles() {
   if (document.getElementById('nst-hide-style')) return;
   const el = document.createElement('style');
@@ -418,8 +438,7 @@ function renderSubtitle(text) {
 }
 
 // Binary search — O(log n) at 60fps
-function findSegment(time) {
-  const segs = overlaySegments;
+function findSegment(time, segs) {
   let lo = 0, hi = segs.length - 1, result = null;
   while (lo <= hi) {
     const mid = (lo + hi) >>> 1;
@@ -434,15 +453,19 @@ function startSync() {
   if (!videoEl) { setTimeout(startSync, 1000); return; }
   if (rafId) cancelAnimationFrame(rafId);
 
-  // On seek: always cancel in-flight translation and restart progressively
-  videoEl.addEventListener('seeked', () => {
+  // Remove any seeked listener from a previous movie before adding a new one
+  if (seekedHandler) videoEl.removeEventListener('seeked', seekedHandler);
+  seekedHandler = () => {
     const t = videoEl.currentTime;
     translationGen++;          // invalidates any in-flight translateWindow
     isWindowTranslating = false; // unlock immediately so initialTranslation can enter
     nextWindowStart = t;
-    LOG(`Seeked to ${fmt(t)}, restarting translation (gen ${translationGen})`);
-    initialTranslation(t);
-  });
+    if (translationEnabled) {
+      LOG(`Seeked to ${fmt(t)}, restarting translation (gen ${translationGen})`);
+      initialTranslation(t);
+    }
+  };
+  videoEl.addEventListener('seeked', seekedHandler);
 
   let lastText = null;
 
@@ -451,11 +474,12 @@ function startSync() {
     const t = videoEl.currentTime;
 
     // Trigger next rolling window when LOOKAHEAD_SECONDS before current window ends
-    if (!isWindowTranslating && t >= nextWindowStart - LOOKAHEAD_SECONDS) {
+    if (!isWindowTranslating && translationEnabled && t >= nextWindowStart - LOOKAHEAD_SECONDS) {
       translateWindow(nextWindowStart, nextWindowStart + windowMinutes * 60, translationGen);
     }
 
-    const seg = findSegment(t);
+    const segs = translationEnabled ? overlaySegments : originalSegments;
+    const seg = findSegment(t, segs);
     const text = seg ? seg.text : '';
     if (text !== lastText) { lastText = text; renderSubtitle(text); }
   }
