@@ -1,9 +1,14 @@
 // content.js — injects page-context script, receives subtitle URLs, fetches,
-// parses TTML locally, sends only text array to background for translation.
+// parses TTML locally, translates a rolling time window progressively.
 'use strict';
 
 const LOG = (...a) => console.log('[SubtitleTranslator]', ...a);
 const TTML_NS = 'http://www.w3.org/ns/ttml';
+
+// How many seconds before window end to start translating the next window
+const LOOKAHEAD_SECONDS = 60;
+// Segments per OpenAI request
+const BATCH_SIZE = 50;
 
 // ---------------------------------------------------------------------------
 // 1. Inject injected.js into page context
@@ -16,18 +21,26 @@ script.onload = () => script.remove();
 // ---------------------------------------------------------------------------
 // 2. State
 // ---------------------------------------------------------------------------
-let currentMovieId = null;
-let isTranslating = false;
-let overlaySegments = [];
-let overlayEl = null;
-let rafId = null;
+let currentMovieId      = null;
+let isSettingUp         = false;  // guard against duplicate nst_tracks processing
+let isWindowTranslating = false;  // guard against concurrent window translations
+let translationGen      = 0;      // increment on seek to cancel in-flight translations
+let nextWindowStart     = 0;      // seconds — start of next untranslated window
+let windowMinutes       = 5;      // configurable via popup
+let overlaySegments     = [];     // [{begin, end, text}] — may be English or Chinese
+let translated          = [];     // boolean[] parallel to overlaySegments
+let overlayEl           = null;
+let rafId               = null;
+let videoEl             = null;
+
 let subtitleFontSize = 24;
 let subtitleBottom   = 8;
 
-// Load persisted display settings and watch for changes from popup
-browser.storage.local.get(['subtitleFontSize', 'subtitleBottom']).then(r => {
-  if (r.subtitleFontSize) subtitleFontSize = r.subtitleFontSize;
-  if (r.subtitleBottom   != null) subtitleBottom = r.subtitleBottom;
+// Load persisted settings
+browser.storage.local.get(['subtitleFontSize', 'subtitleBottom', 'windowMinutes']).then(r => {
+  if (r.subtitleFontSize != null) subtitleFontSize = r.subtitleFontSize;
+  if (r.subtitleBottom   != null) subtitleBottom   = r.subtitleBottom;
+  if (r.windowMinutes    != null) windowMinutes     = r.windowMinutes;
   applyOverlayStyle();
 });
 
@@ -35,21 +48,19 @@ browser.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if ('subtitleFontSize' in changes) subtitleFontSize = changes.subtitleFontSize.newValue;
   if ('subtitleBottom'   in changes) subtitleBottom   = changes.subtitleBottom.newValue;
+  if ('windowMinutes'    in changes) windowMinutes    = changes.windowMinutes.newValue;
   applyOverlayStyle();
 });
 
 // ---------------------------------------------------------------------------
-// 3. TTML parsing (runs in content script — DOMParser works here for sure)
+// 3. TTML parsing
 // ---------------------------------------------------------------------------
 function parseTtmlTime(t, tickRate) {
   if (!t) return 0;
-  // HH:MM:SS.mmm
   const m = t.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/);
   if (m) return +m[1] * 3600 + +m[2] * 60 + +m[3];
-  // MM:SS.mmm
   const m2 = t.match(/^(\d+):(\d+(?:\.\d+)?)$/);
   if (m2) return +m2[1] * 60 + +m2[2];
-  // Raw tick integer (Netflix uses ttp:tickRate, typically 10000000)
   return parseFloat(t) / tickRate;
 }
 
@@ -72,9 +83,10 @@ function parseTtml(xmlString) {
   const err = doc.querySelector('parsererror');
   if (err) throw new Error('XML parse error: ' + err.textContent.slice(0, 100));
 
-  // Read tickRate from <tt ttp:tickRate="..."> — Netflix typically uses 10000000
   const tt = doc.getElementsByTagNameNS(TTML_NS, 'tt')[0];
-  const tickRate = parseInt(tt?.getAttributeNS('http://www.w3.org/ns/ttml#parameter', 'tickRate') || '10000000', 10);
+  const tickRate = parseInt(
+    tt?.getAttributeNS('http://www.w3.org/ns/ttml#parameter', 'tickRate') || '10000000', 10
+  );
   LOG(`tickRate: ${tickRate}`);
 
   const ps = doc.getElementsByTagNameNS(TTML_NS, 'p');
@@ -86,11 +98,10 @@ function parseTtml(xmlString) {
     if (!text) continue;
     segments.push({
       begin: parseTtmlTime(p.getAttribute('begin'), tickRate),
-      end:   parseTtmlTime(p.getAttribute('end'), tickRate),
+      end:   parseTtmlTime(p.getAttribute('end'),   tickRate),
       text,
     });
   }
-  // Ensure sorted by begin time — binary search requires it
   segments.sort((a, b) => a.begin - b.begin);
   return segments;
 }
@@ -107,7 +118,6 @@ function findEnglishTtmlUrl(tracks) {
       t.language === 'en-US' ||
       (t.languageDescription || '').toLowerCase().includes('english')
   );
-
   if (candidates.length === 0) return null;
 
   function firstUrl(obj) {
@@ -124,45 +134,146 @@ function findEnglishTtmlUrl(tracks) {
   for (const track of candidates) {
     const dl = track.ttDownloadables;
     if (!dl) continue;
-    LOG('ttDownloadables keys for track', track.language, ':', Object.keys(dl));
+    LOG('ttDownloadables keys for', track.language, ':', Object.keys(dl));
     for (const fmt of TTML_FORMATS) {
       const entry = dl[fmt];
       if (!entry) continue;
       const url = firstUrl(entry.downloadUrls || entry.urls || entry);
-      if (url) {
-        LOG('Found subtitle URL under format', fmt, ':', url);
-        return url;
-      }
+      if (url) { LOG('Subtitle URL:', fmt, url); return url; }
     }
   }
   return null;
 }
 
 // ---------------------------------------------------------------------------
-// 5. Listen for timedtexttracks from injected.js
+// 5. Window-based translation
+// ---------------------------------------------------------------------------
+
+// Translate segments in [fromTime, toTime) for a specific generation.
+// Returns true if completed normally, false if cancelled by a newer seek.
+async function translateWindow(fromTime, toTime, gen) {
+  if (isWindowTranslating) return false;
+  isWindowTranslating = true;
+
+  LOG(`Translating window ${fmt(fromTime)} → ${fmt(toTime)}`);
+  setStatus('translating', `Translating ${fmt(fromTime)}–${fmt(toTime)}…`);
+
+  const pending = [];
+  for (let i = 0; i < overlaySegments.length; i++) {
+    if (!translated[i] &&
+        overlaySegments[i].begin >= fromTime &&
+        overlaySegments[i].begin < toTime) {
+      pending.push(i);
+    }
+  }
+
+  if (pending.length === 0) {
+    LOG(`No untranslated segments in window, advancing`);
+    nextWindowStart = toTime;
+    isWindowTranslating = false;
+    return true;
+  }
+
+  LOG(`${pending.length} segments to translate`);
+  let completed = 0;
+
+  for (let b = 0; b < pending.length; b += BATCH_SIZE) {
+    // Check if a seek has made this translation stale
+    if (gen !== translationGen) {
+      LOG(`Window cancelled (gen ${gen} → ${translationGen})`);
+      isWindowTranslating = false;
+      return false;
+    }
+
+    const slice = pending.slice(b, b + BATCH_SIZE);
+    const texts = slice.map(i => overlaySegments[i].text);
+
+    let response;
+    try {
+      response = await browser.runtime.sendMessage({ type: 'translate', texts, movieId: currentMovieId });
+    } catch (err) {
+      LOG(`Batch sendMessage failed:`, err);
+      setStatus('error', 'Background error: ' + err.message);
+      isWindowTranslating = false;
+      return false;
+    }
+
+    if (!response || !response.ok) {
+      LOG(`Batch failed:`, response?.error);
+      continue; // non-fatal — leave as English
+    }
+
+    response.translations.forEach((text, j) => {
+      const idx = slice[j];
+      overlaySegments[idx] = { ...overlaySegments[idx], text };
+      translated[idx] = true;
+    });
+
+    completed += slice.length;
+    setStatus('translating', `${fmt(fromTime)}–${fmt(toTime)}: ${completed}/${pending.length}`);
+  }
+
+  LOG(`Window done — ${completed}/${pending.length} translated`);
+  nextWindowStart = toTime;
+  isWindowTranslating = false;
+  setStatus('done', `Translated up to ${fmt(toTime)}`);
+  return true;
+}
+
+// Progressive initial load: 30s → 2 min → full window.
+// Each stage awaits the previous so subtitles appear almost immediately.
+// Exits early if cancelled by a newer seek.
+async function initialTranslation(startTime) {
+  const gen = ++translationGen;
+  isWindowTranslating = false; // unlock so this call can enter translateWindow
+  const windowEnd = startTime + windowMinutes * 60;
+
+  const stages = [
+    startTime + 30,   // Stage 1: first 30s — subtitles appear fast
+    startTime + 120,  // Stage 2: up to 2 min — fill in more
+    windowEnd,        // Stage 3: full configured window
+  ];
+
+  let prev = startTime;
+  for (const to of stages) {
+    const clampedTo = Math.min(to, windowEnd);
+    if (clampedTo <= prev) continue;
+    const ok = await translateWindow(prev, clampedTo, gen);
+    if (!ok) return; // cancelled by a newer seek
+    prev = clampedTo;
+    if (prev >= windowEnd) break;
+  }
+}
+
+function fmt(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// ---------------------------------------------------------------------------
+// 6. Listen for timedtexttracks from injected.js
 // ---------------------------------------------------------------------------
 window.addEventListener('nst_tracks', async (e) => {
   let payload;
   try { payload = JSON.parse(e.detail); } catch (_) { return; }
 
   const { movieId, tracks } = payload;
-  if (!movieId || movieId === currentMovieId || isTranslating) return;
+  if (!movieId || movieId === currentMovieId || isSettingUp) return;
   currentMovieId = movieId;
-  isTranslating = true;
+  isSettingUp = true;
 
-  LOG('Received tracks for movieId', movieId, '—', tracks.length, 'tracks');
+  LOG('Tracks received for movieId', movieId);
   setStatus('detected', `Found ${tracks.length} subtitle tracks`);
 
-  // Find URL
   const url = findEnglishTtmlUrl(tracks);
   if (!url) {
-    LOG('No English TTML URL found. Languages:', tracks.map(t => t.language));
-    setStatus('error', 'No English TTML subtitle track found');
-    isTranslating = false;
+    LOG('No English TTML URL. Languages:', tracks.map(t => t.language));
+    setStatus('error', 'No English TTML track found');
+    isSettingUp = false;
     return;
   }
 
-  // Fetch XML
   let xml;
   try {
     const res = await fetch(url);
@@ -172,101 +283,96 @@ window.addEventListener('nst_tracks', async (e) => {
   } catch (err) {
     LOG('Fetch failed:', err);
     setStatus('error', 'Fetch failed: ' + err.message);
-    isTranslating = false;
+    isSettingUp = false;
     return;
   }
 
-  // Parse TTML here in content script
   let segments;
   try {
     segments = parseTtml(xml);
-    LOG(`Parsed ${segments.length} segments. First:`, segments[0]);
+    LOG(`Parsed ${segments.length} segments`);
   } catch (err) {
     LOG('TTML parse failed:', err);
     setStatus('error', 'TTML parse failed: ' + err.message);
-    isTranslating = false;
+    isSettingUp = false;
     return;
   }
 
   if (segments.length === 0) {
-    LOG('No segments found in TTML');
     setStatus('error', 'No subtitle segments found');
-    isTranslating = false;
+    isSettingUp = false;
     return;
   }
 
-  // Translate in batches — first batch shows immediately, rest fill in progressively
-  const BATCH_SIZE = 50;
-  const texts = segments.map(s => s.text);
-  LOG(`${texts.length} segments, translating in batches of ${BATCH_SIZE}`);
-
-  // Pre-fill overlay with original English so timing is ready
+  // Set up state — all segments start as English
   overlaySegments = segments.map(s => ({ ...s }));
+  translated      = new Array(segments.length).fill(false);
+
   ensureOverlay();
+
+  isSettingUp = false;
   startSync();
 
-  const batches = [];
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    batches.push({ offset: i, texts: texts.slice(i, i + BATCH_SIZE) });
-  }
-
-  let completed = 0;
-  for (const { offset, texts: batchTexts } of batches) {
-    setStatus('translating', `Translating segments ${offset + 1}–${offset + batchTexts.length} of ${texts.length}…`);
-    LOG(`Sending batch offset=${offset} size=${batchTexts.length}`);
-
-    let response;
-    try {
-      response = await browser.runtime.sendMessage({ type: 'translate', texts: batchTexts, movieId });
-    } catch (err) {
-      LOG(`Batch offset=${offset} sendMessage failed:`, err);
-      setStatus('error', 'Background error: ' + err.message);
-      break;
-    }
-
-    if (!response || !response.ok) {
-      LOG(`Batch offset=${offset} failed:`, response?.error);
-      // Non-fatal — keep going with remaining batches, this batch stays English
-      continue;
-    }
-
-    if (response.translations.length !== batchTexts.length) {
-      LOG(`Batch offset=${offset} count mismatch: sent ${batchTexts.length}, got ${response.translations.length} — skipping`);
-      continue;
-    }
-
-    // Merge this batch's translations into overlaySegments
-    response.translations.forEach((text, i) => {
-      overlaySegments[offset + i] = { ...overlaySegments[offset + i], text };
-    });
-
-    completed += batchTexts.length;
-    LOG(`Batch done. ${completed}/${texts.length} translated. First of batch:`, response.translations[0]);
-    setStatus('done', `Translated ${completed} of ${texts.length} segments`);
-  }
-
-  LOG(`All batches complete. ${completed}/${texts.length} translated.`);
-  setStatus('done', `Done — ${completed} of ${texts.length} segments translated`);
-  isTranslating = false;
+  // Poll until video.currentTime > 1s so we catch Netflix's resume seek.
+  // Only then do we know the actual starting position.
+  // Capture movieId so a stale promise from a previous title is a no-op.
+  const capturedMovieId = movieId;
+  waitForPlaybackStart().then(startTime => {
+    if (currentMovieId !== capturedMovieId) return; // navigated away
+    videoEl = document.querySelector('video'); // refresh in case it wasn't ready
+    LOG(`Starting translation from ${fmt(startTime)}`);
+    nextWindowStart = startTime;
+    initialTranslation(startTime);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// 6. Overlay
+// 7. Playback start detection
+// ---------------------------------------------------------------------------
+
+// Polls until video.currentTime settles at a non-trivial value (> 1s),
+// meaning Netflix has finished seeking to the resume position.
+// Falls back after 5s so we never hang forever.
+function waitForPlaybackStart() {
+  return new Promise(resolve => {
+    const MAX_MS   = 5000;
+    const INTERVAL = 150;
+    const began    = Date.now();
+
+    function check() {
+      const video = document.querySelector('video');
+      if (video && video.currentTime > 1) {
+        LOG(`Playback position settled at ${fmt(video.currentTime)}`);
+        resolve(video.currentTime);
+        return;
+      }
+      if (Date.now() - began >= MAX_MS) {
+        const t = video ? video.currentTime : 0;
+        LOG(`Playback start timeout, using ${fmt(t)}`);
+        resolve(t);
+        return;
+      }
+      setTimeout(check, INTERVAL);
+    }
+
+    check();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 8. Overlay
 // ---------------------------------------------------------------------------
 function hideNetflixSubtitles() {
-  const style = document.getElementById('nst-hide-style');
-  if (style) return;
+  if (document.getElementById('nst-hide-style')) return;
   const el = document.createElement('style');
   el.id = 'nst-hide-style';
   el.textContent = '.player-timedtext { visibility: hidden !important; }';
   document.head.appendChild(el);
-  LOG('Netflix original subtitles hidden');
 }
 
 function applyOverlayStyle() {
   if (!overlayEl) return;
   overlayEl.style.bottom = subtitleBottom + '%';
-  // Re-render current subtitle so font size takes effect immediately
   const inner = overlayEl.querySelector('div');
   if (inner) inner.style.fontSize = subtitleFontSize + 'px';
 }
@@ -289,8 +395,6 @@ function ensureOverlay() {
   applyOverlayStyle();
   document.body.appendChild(overlayEl);
 
-  // Re-parent into the fullscreen element so it stays visible.
-  // Always keep position:fixed — it stays relative to the viewport in fullscreen too.
   document.addEventListener('fullscreenchange', () => {
     const fs = document.fullscreenElement;
     (fs || document.body).appendChild(overlayEl);
@@ -313,7 +417,7 @@ function renderSubtitle(text) {
   ">${lines.join('<br>')}</div>`;
 }
 
-// Binary search — O(log n) instead of O(n) linear scan at 60fps
+// Binary search — O(log n) at 60fps
 function findSegment(time) {
   const segs = overlaySegments;
   let lo = 0, hi = segs.length - 1, result = null;
@@ -326,22 +430,42 @@ function findSegment(time) {
 }
 
 function startSync() {
-  const video = document.querySelector('video');
-  if (!video) { setTimeout(startSync, 1000); return; }
+  if (!videoEl) videoEl = document.querySelector('video');
+  if (!videoEl) { setTimeout(startSync, 1000); return; }
   if (rafId) cancelAnimationFrame(rafId);
+
+  // On seek: always cancel in-flight translation and restart progressively
+  videoEl.addEventListener('seeked', () => {
+    const t = videoEl.currentTime;
+    translationGen++;          // invalidates any in-flight translateWindow
+    isWindowTranslating = false; // unlock immediately so initialTranslation can enter
+    nextWindowStart = t;
+    LOG(`Seeked to ${fmt(t)}, restarting translation (gen ${translationGen})`);
+    initialTranslation(t);
+  });
+
   let lastText = null;
+
   function tick() {
     rafId = requestAnimationFrame(tick);
-    const seg = findSegment(video.currentTime);
+    const t = videoEl.currentTime;
+
+    // Trigger next rolling window when LOOKAHEAD_SECONDS before current window ends
+    if (!isWindowTranslating && t >= nextWindowStart - LOOKAHEAD_SECONDS) {
+      translateWindow(nextWindowStart, nextWindowStart + windowMinutes * 60, translationGen);
+    }
+
+    const seg = findSegment(t);
     const text = seg ? seg.text : '';
     if (text !== lastText) { lastText = text; renderSubtitle(text); }
   }
+
   tick();
   LOG('Subtitle sync started');
 }
 
 // ---------------------------------------------------------------------------
-// 7. Status
+// 9. Status
 // ---------------------------------------------------------------------------
 function setStatus(state, message) {
   browser.storage.local.set({ translationStatus: { state, message, ts: Date.now() } });
