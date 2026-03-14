@@ -245,7 +245,8 @@ async function translateWindow(fromTime, toTime, gen) {
   }
 
   LOG(`Translating window ${fmt(fromTime)} → ${fmt(toTime)}`);
-  setStatus('translating', `Translating ${fmt(fromTime)}–${fmt(toTime)}…`);
+  const nowFmt = () => videoEl ? fmt(videoEl.currentTime) : fmt(fromTime);
+  setStatus('translating', `Translating… (at ${nowFmt()})`);
 
   const pending = [];
   for (let i = 0; i < overlaySegments.length; i++) {
@@ -299,12 +300,12 @@ async function translateWindow(fromTime, toTime, gen) {
     });
 
     completed += slice.length;
-    setStatus('translating', `${fmt(fromTime)}–${fmt(toTime)}: ${completed}/${pending.length}`);
+    setStatus('translating', `Translating… (at ${nowFmt()}) ${completed}/${pending.length}`);
   }
 
   nextWindowStart = toTime;
   isWindowTranslating = false;
-  setStatus('done', `Translated up to ${fmt(toTime)}`);
+  setStatus('done', `Translated up to ${fmt(toTime)} (at ${nowFmt()})`);
   return true;
 }
 
