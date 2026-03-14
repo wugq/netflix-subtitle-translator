@@ -393,14 +393,16 @@ class SubtitleController {
     const videoEl = this._sync.videoEl;
     const nowFmt = () => videoEl ? this._fmt(videoEl.currentTime) : this._fmt(fromTime);
     const srcLabel = this._langLabel(this._srcLang);
-    this._setStatus('translating', `Translating from ${srcLabel}\u2026 (at ${nowFmt()})`);
 
     const pending = this._store.pendingIndices(fromTime, toTime);
 
     if (pending.length === 0) {
       this._nextWindowStart = toTime;
+      this._setStatus('done', `Up to ${this._fmt(toTime)} already translated (at ${nowFmt()})`);
       return true;
     }
+
+    this._setStatus('translating', `Translating from ${srcLabel}\u2026 (at ${nowFmt()})`);
 
     let completed = 0;
     for (let b = 0; b < pending.length; b += BATCH_SIZE) {
