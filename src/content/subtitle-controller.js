@@ -35,7 +35,7 @@ class SubtitleController {
     this._subtitleFontSize    = 24;
     this._subtitleBottom      = 8;
     this._translationEnabled  = true;
-    this._showAiNotice        = true;
+    this._showNotice          = true;
 
     // Status tracking (fix for undeclared lastStatus reference)
     this._lastStatus = null;
@@ -75,14 +75,14 @@ class SubtitleController {
     // Load persisted settings
     browser.storage.local.get([
       'subtitleFontSize', 'subtitleBottom', 'windowMinutes', 'translationEnabled', 'dstLang',
-      'showAiNotice', 'consoleLogging', 'verboseLogging',
+      'showNotice', 'consoleLogging', 'verboseLogging',
     ]).then(r => {
       if (r.subtitleFontSize   != null) this._subtitleFontSize   = r.subtitleFontSize;
       if (r.subtitleBottom     != null) this._subtitleBottom     = r.subtitleBottom;
       if (r.windowMinutes      != null) this._windowMinutes      = r.windowMinutes;
       if (r.translationEnabled != null) this._translationEnabled = r.translationEnabled;
       if (r.dstLang            != null) this._dstLang            = r.dstLang;
-      if (r.showAiNotice       != null) this._showAiNotice       = r.showAiNotice;
+      if (r.showNotice         != null) this._showNotice         = r.showNotice;
       if (r.consoleLogging     != null || r.verboseLogging != null) {
         this._logger.configure(r.consoleLogging || false, r.verboseLogging || false);
       }
@@ -103,7 +103,7 @@ class SubtitleController {
         this._dstLang = changes.dstLang.newValue;
         this._onLanguageChanged('dstLang');
       }
-      if ('showAiNotice'   in changes) this._showAiNotice = changes.showAiNotice.newValue;
+      if ('showNotice'     in changes) this._showNotice   = changes.showNotice.newValue;
       if ('consoleLogging' in changes || 'verboseLogging' in changes) {
         this._logger.configure(
           'consoleLogging' in changes ? changes.consoleLogging.newValue : this._logger._consoleLogging,
@@ -478,7 +478,7 @@ class SubtitleController {
     try {
       const msg = flashMsg || 'AI translation active \u2014 uses AI tokens';
       this._setStatus('ai_notice', msg);
-      if (this._showAiNotice) this._overlay.showFlash(msg);
+      if (this._showNotice) this._overlay.showFlash(msg);
 
       const stages = [startTime + 30, startTime + 120, windowEnd];
       let prev = startTime;

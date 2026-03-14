@@ -42,7 +42,7 @@ class PopupController {
     this._toggleBtn     = document.getElementById('toggleTranslation');
     this._openOptionsBtn = document.getElementById('openOptions');
     this._dstLangSelect = document.getElementById('dstLang');
-    this._showAiNoticeCheckbox = document.getElementById('showAiNotice');
+    this._showNoticeCheckbox = document.getElementById('showNotice');
     this._statusRow  = document.getElementById('statusRow');
     this._statusText = document.getElementById('statusText');
     this._statusTime = document.getElementById('statusTime');
@@ -90,8 +90,8 @@ class PopupController {
       browser.storage.local.set({ dstLang: this._dstLangSelect.value });
     });
 
-    this._showAiNoticeCheckbox.addEventListener('change', () => {
-      browser.storage.local.set({ showAiNotice: this._showAiNoticeCheckbox.checked });
+    this._showNoticeCheckbox.addEventListener('change', () => {
+      browser.storage.local.set({ showNotice: this._showNoticeCheckbox.checked });
     });
 
     this._bindSteppers();
@@ -160,8 +160,8 @@ class PopupController {
     });
 
     // AI notice toggle
-    browser.storage.local.get('showAiNotice').then(r => {
-      this._showAiNoticeCheckbox.checked = r.showAiNotice !== false;
+    browser.storage.local.get('showNotice').then(r => {
+      this._showNoticeCheckbox.checked = r.showNotice !== false;
     });
 
     // Display settings
