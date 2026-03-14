@@ -74,7 +74,7 @@ class TtmlParser {
       const idAttr = p.getAttribute('xml:id') || p.getAttribute('id');
       const key = `${idAttr || 'p' + pIndex}|${beginAttr || ''}|${endAttr || ''}|${durAttr || ''}`;
 
-      segments.push({ id: idAttr || null, key, begin, end, text });
+      segments.push({ id: idAttr || null, key, begin, end, text, seq: pIndex });
       pIndex++;
     }
 

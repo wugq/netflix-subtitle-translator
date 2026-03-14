@@ -148,7 +148,7 @@ class PlaybackSync {
       if (s.begin <= time && s.end > time) results.push(s);
       if (time - s.begin > 60) break;
     }
-    return results.sort((a, b) => a.begin - b.begin);
+    return results.sort((a, b) => a.begin - b.begin || a.seq - b.seq);
   }
 
   _fmt(s) {
