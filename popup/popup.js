@@ -146,12 +146,12 @@ const statusText = document.getElementById('statusText');
 const statusTime = document.getElementById('statusTime');
 
 const STATE_CONFIG = {
-  idle:        { label: 'Waiting for Netflix…', cls: 'state-idle' },
-  detected:    { label: null,                    cls: 'state-detected' },
-  translating: { label: null,                    cls: 'state-translating' },
-  done:        { label: null,                    cls: 'state-done' },
-  error:       { label: null,                    cls: 'state-error' },
-  ai_notice:   { label: null,                    cls: 'state-ai_notice' },
+  idle:        { cls: 'state-idle' },
+  detected:    { cls: 'state-detected' },
+  translating: { cls: 'state-translating' },
+  done:        { cls: 'state-done' },
+  error:       { cls: 'state-error' },
+  ai_notice:   { cls: 'state-ai_notice' },
 };
 
 function relativeTime(ts) {
@@ -167,7 +167,7 @@ function renderStatus(status) {
   const { state, message, ts } = status;
   const cfg = STATE_CONFIG[state] || STATE_CONFIG.idle;
   statusRow.className    = `status-row ${cfg.cls}`;
-  statusText.textContent = cfg.label || message;
+  statusText.textContent = message;
   statusTime.textContent = ts ? relativeTime(ts) : '';
 }
 

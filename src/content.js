@@ -28,6 +28,110 @@ const VLOG = (...a) => {
   logToMemory(formatLogArgs(a));
 };
 
+// ---------------------------------------------------------------------------
+// Primitives: EventBus, SerialQueue, TranslationSession, SegmentStore
+// ---------------------------------------------------------------------------
+
+const EventBus = (() => {
+  const listeners = Object.create(null);
+  return {
+    on(event, fn)  { (listeners[event] || (listeners[event] = [])).push(fn); },
+    off(event, fn) { if (listeners[event]) listeners[event] = listeners[event].filter(f => f !== fn); },
+    emit(event, payload) {
+      const fns = listeners[event];
+      if (fns) for (const fn of fns.slice()) try { fn(payload); } catch (e) { console.error('[NST]', e); }
+    },
+  };
+})();
+
+const SerialQueue = (() => {
+  let running = false, pending = null;
+  async function drain() {
+    while (pending) {
+      const { fn } = pending; pending = null;
+      try { await fn(); } catch (e) { console.error('[NST SerialQueue]', e); }
+    }
+    running = false;
+  }
+  return {
+    push(fn) {
+      pending = { fn };
+      if (!running) { running = true; drain(); }
+    },
+    get isRunning() { return running; },
+  };
+})();
+
+const TranslationSession = (() => {
+  let current = null;
+  return {
+    start()  { if (current) current.abort(); current = new AbortController(); return current.signal; },
+    cancel() { if (current) { current.abort(); current = null; } },
+    get signal() { return current ? current.signal : null; },
+  };
+})();
+
+const SegmentStore = (() => {
+  let _orig = [], _overlay = [], _done = [];
+  return {
+    load(segs)   { _orig = segs.map(s=>({...s})); _overlay = segs.map(s=>({...s})); _done = new Array(segs.length).fill(false); },
+    reset()      { _orig = []; _overlay = []; _done = []; },
+    getOverlay() { return _overlay; },
+    getOriginal(){ return _orig; },
+    pendingIndices(from, to) {
+      return _overlay.reduce((a, s, i) => (!_done[i] && s.begin >= from && s.begin < to) ? [...a, i] : a, []);
+    },
+    applyTranslations(indices, map) {
+      let n = 0;
+      for (const i of indices) {
+        const key = _orig[i]?.key || _overlay[i]?.key || `idx-${i}`;
+        if (typeof map[key] === 'string') { _overlay[i] = {..._overlay[i], text: map[key]}; _done[i] = true; n++; }
+      }
+      return n;
+    },
+    getItemsForIndices(indices) {
+      return indices.map(i => ({ key: _orig[i]?.key || _overlay[i]?.key || `idx-${i}`, text: _orig[i]?.text || _overlay[i]?.text }));
+    },
+  };
+})();
+
+// ---------------------------------------------------------------------------
+// EventBus wiring (one-time setup — handlers defined later in the file but
+// registered here so the wiring is co-located with the bus declaration)
+// ---------------------------------------------------------------------------
+EventBus.on('lang:changed', ({ reason }) => {
+  SerialQueue.push(async () => {
+    if (!isOnWatchPage() || !currentMovieId || !availableTracks.length) return;
+    const { mode, ttmlLang, dstNotLoaded } = determineMode();
+    TranslationSession.cancel();
+    const ok = await applyMode(availableTracks, mode, ttmlLang);
+    if (!ok) return;
+    // No recheck needed — if another lang:changed arrived during applyMode(),
+    // SerialQueue already has it pending and drain() will run it next.
+    const t = videoEl?.currentTime ?? 0;
+    nextWindowStart = t; rollingWindowEnd = 0;
+    if (needsAiTranslation && translationEnabled && canTranslateNow()) {
+      const signal = TranslationSession.start();
+      initialTranslation(t, dstNotLoaded ? `"${langLabel(dstLang)}" subtitle isn't loaded by Netflix yet — using AI translation instead` : null, signal);
+    } else {
+      setModeStatus(mode);
+    }
+  });
+});
+
+EventBus.on('playback:seeked', ({ time }) => {
+  if (needsAiTranslation && translationEnabled && canTranslateNow())
+    initialTranslation(time, null, TranslationSession.start());
+});
+EventBus.on('playback:play', ({ time }) => {
+  if (needsAiTranslation && translationEnabled)
+    initialTranslation(time, null, TranslationSession.start());
+  else setStatus('done', 'Playback resumed');
+});
+EventBus.on('playback:pause', () => { TranslationSession.cancel(); setStatus('done', 'Translation paused — playback paused'); });
+EventBus.on('settings:translationEnabled', ({ enabled }) => { translationEnabled = enabled; applyTranslationEnabled(); });
+EventBus.on('settings:style', () => applyOverlayStyle());
+
 const TTML_NS = 'http://www.w3.org/ns/ttml';
 const TTML_PARAM_NS = 'http://www.w3.org/ns/ttml#parameter';
 
@@ -46,15 +150,11 @@ script.onload = () => script.remove();
 // 2. State
 // ---------------------------------------------------------------------------
 let currentMovieId      = null;
-let isSettingUp         = false;
-let isWindowTranslating = false;
-let translationGen      = 0;
 let nextWindowStart     = 0;
+let rollingWindowEnd    = 0;
 let windowMinutes       = 5;
-let originalSegments    = [];   // source-language segments (used when AI disabled)
-let overlaySegments     = [];   // displayed segments (translated or native/passthrough)
-let translated          = [];   // boolean[] — which overlaySegments have been AI-translated
 let overlayEl           = null;
+let fullscreenHandler   = null;
 let rafId               = null;
 let videoEl             = null;
 let seekedHandler       = null;
@@ -78,6 +178,11 @@ let subtitleFontSize   = 24;
 let subtitleBottom     = 8;
 let translationEnabled = true;
 let showAiNotice       = true;
+
+// Clear stale status immediately if not on a watch page
+if (!isOnWatchPage()) {
+  setStatus('idle', 'Waiting for a video to play…');
+}
 
 // Load persisted settings
 browser.storage.local.get([
@@ -103,7 +208,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   if ('windowMinutes'      in changes) windowMinutes    = changes.windowMinutes.newValue;
   if ('translationEnabled' in changes) {
     translationEnabled = changes.translationEnabled.newValue;
-    applyTranslationEnabled();
+    EventBus.emit('settings:translationEnabled', { enabled: translationEnabled });
   }
   if ('dstLang' in changes) {
     dstLang = changes.dstLang.newValue;
@@ -112,7 +217,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   if ('showAiNotice'   in changes) showAiNotice   = changes.showAiNotice.newValue;
   if ('consoleLogging' in changes) consoleLogging = changes.consoleLogging.newValue;
   if ('verboseLogging' in changes) verboseLogging = changes.verboseLogging.newValue;
-  if (styleChanged) applyOverlayStyle();
+  if (styleChanged) EventBus.emit('settings:style');
 });
 
 // ---------------------------------------------------------------------------
@@ -349,26 +454,18 @@ function canTranslateNow() {
 }
 
 function resetStateForNewVideo() {
-  translationGen++;
-  isWindowTranslating = false;
-  nextWindowStart = 0;
-  originalSegments = [];
-  overlaySegments = [];
-  translated = [];
-  currentMode = null;
-  currentTtmlLang = null;
-  needsAiTranslation = false;
-  lastRenderedText = null;
-  lastWatchPageState = null;
-
-  if (rafId) cancelAnimationFrame(rafId);
-  rafId = null;
-  if (seekedHandler && videoEl) videoEl.removeEventListener('seeked', seekedHandler);
-  seekedHandler = null;
-  if (playHandler && videoEl) videoEl.removeEventListener('play', playHandler);
-  if (pauseHandler && videoEl) videoEl.removeEventListener('pause', pauseHandler);
-  playHandler = null;
-  pauseHandler = null;
+  TranslationSession.cancel();
+  SegmentStore.reset();
+  nextWindowStart = 0; rollingWindowEnd = 0;
+  currentMode = null; currentTtmlLang = null; needsAiTranslation = false;
+  lastRenderedText = null; lastWatchPageState = null;
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  if (videoEl) {
+    if (seekedHandler) videoEl.removeEventListener('seeked', seekedHandler);
+    if (playHandler)   videoEl.removeEventListener('play',   playHandler);
+    if (pauseHandler)  videoEl.removeEventListener('pause',  pauseHandler);
+  }
+  seekedHandler = playHandler = pauseHandler = null;
   videoEl = null;
   if (overlayEl) overlayEl.innerHTML = '';
 }
@@ -404,15 +501,14 @@ async function fetchSegments(tracks, langCode) {
 // ---------------------------------------------------------------------------
 // 6. Window-based AI translation
 // ---------------------------------------------------------------------------
-async function translateWindow(fromTime, toTime, gen) {
+async function translateWindow(fromTime, toTime, signal) {
   if (!canTranslateNow()) return false;
-  if (isWindowTranslating) return false;
-  isWindowTranslating = true;
+  if (signal.aborted) return false;
 
   const keyCheck = await browser.runtime.sendMessage({ type: 'checkApiKey' });
+  if (signal.aborted) return false;
   if (!keyCheck?.ok) {
     setStatus('error', 'No API key — open extension settings');
-    isWindowTranslating = false;
     return false;
   }
 
@@ -420,39 +516,22 @@ async function translateWindow(fromTime, toTime, gen) {
   const nowFmt = () => videoEl ? fmt(videoEl.currentTime) : fmt(fromTime);
   setStatus('translating', `Translating… (at ${nowFmt()})`);
 
-  const pending = [];
-  for (let i = 0; i < overlaySegments.length; i++) {
-    if (!translated[i] &&
-        overlaySegments[i].begin >= fromTime &&
-        overlaySegments[i].begin < toTime) {
-      pending.push(i);
-    }
-  }
+  const pending = SegmentStore.pendingIndices(fromTime, toTime);
 
   if (pending.length === 0) {
     nextWindowStart = toTime;
-    isWindowTranslating = false;
     return true;
   }
 
   let completed = 0;
   for (let b = 0; b < pending.length; b += BATCH_SIZE) {
-    // Check gen FIRST — if stale, a newer translateWindow already owns isWindowTranslating
-    if (gen !== translationGen) {
-      return false;
-    }
-    if (!canTranslateNow()) {
-      isWindowTranslating = false;
-      return false;
-    }
+    if (signal.aborted) return false;
+    if (!canTranslateNow()) return false;
 
     const slice = pending.slice(b, b + BATCH_SIZE);
-    const items = slice.map(i => ({
-      key: originalSegments[i]?.key || overlaySegments[i].key || `idx-${i}`,
-      text: originalSegments[i]?.text || overlaySegments[i].text,
-    }));
+    const items = SegmentStore.getItemsForIndices(slice);
 
-    const requestId = `${currentMovieId}:${translationGen}:${++aiRequestSeq}`;
+    const requestId = `${currentMovieId}:${++aiRequestSeq}`;
     let response;
     try {
       VLOG('AI batch request', {
@@ -468,14 +547,14 @@ async function translateWindow(fromTime, toTime, gen) {
       });
     } catch (err) {
       setStatus('error', 'Background error: ' + err.message);
-      isWindowTranslating = false;
       return false;
     }
+
+    if (signal.aborted) return false;
 
     if (!response || !response.ok) {
       if (response?.error?.includes('No API key')) {
         setStatus('error', 'No API key — open extension settings');
-        isWindowTranslating = false;
         return false;
       }
       continue; // non-fatal — leave segment as source text
@@ -492,34 +571,26 @@ async function translateWindow(fromTime, toTime, gen) {
       first3: response.sample || [],
     });
     const map = response.translations || {};
-    for (const idx of slice) {
-      const segKey = originalSegments[idx]?.key || overlaySegments[idx].key || `idx-${idx}`;
-      const text = map[segKey];
-      if (typeof text === 'string') {
-        overlaySegments[idx] = { ...overlaySegments[idx], text };
-        translated[idx] = true;
-      }
-    }
+    SegmentStore.applyTranslations(slice, map);
 
     completed += slice.length;
     setStatus('translating', `Translating… (at ${nowFmt()}) ${completed}/${pending.length}`);
   }
 
+  if (signal.aborted) return false;
   nextWindowStart = toTime;
-  isWindowTranslating = false;
   setStatus('done', `Translated up to ${fmt(toTime)} (at ${nowFmt()})`);
   return true;
 }
 
 // Progressive 3-stage translation: 30s → 2min → full window.
 // flashMsg: optional on-screen message to show when AI starts (respects showAiNotice setting).
-async function initialTranslation(startTime, flashMsg) {
+async function initialTranslation(startTime, flashMsg, signal) {
+  if (signal.aborted) return;
   if (!canTranslateNow()) {
     setStatus('done', 'Translation paused — playback not active');
     return;
   }
-  const gen = ++translationGen;
-  isWindowTranslating = false;
   const windowEnd = startTime + windowMinutes * 60;
 
   const msg = flashMsg || 'AI translation active — uses API tokens';
@@ -529,9 +600,10 @@ async function initialTranslation(startTime, flashMsg) {
   const stages = [startTime + 30, startTime + 120, windowEnd];
   let prev = startTime;
   for (const to of stages) {
+    if (signal.aborted) return;
     const clampedTo = Math.min(to, windowEnd);
     if (clampedTo <= prev) continue;
-    const ok = await translateWindow(prev, clampedTo, gen);
+    const ok = await translateWindow(prev, clampedTo, signal);
     if (!ok) return;
     prev = clampedTo;
     if (prev >= windowEnd) break;
@@ -550,9 +622,7 @@ async function applyMode(tracks, mode, ttmlLang) {
   const segments = await fetchSegments(tracks, ttmlLang);
   if (!segments) return false;
 
-  originalSegments   = segments.map(s => ({ ...s }));
-  overlaySegments    = segments.map(s => ({ ...s }));
-  translated         = new Array(segments.length).fill(false);
+  SegmentStore.load(segments);
   needsAiTranslation = (mode === 'ai');
   currentMode        = mode;
   currentTtmlLang    = ttmlLang;
@@ -560,7 +630,16 @@ async function applyMode(tracks, mode, ttmlLang) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. Listen for timedtexttracks from injected.js
+// 8. Status helpers
+// ---------------------------------------------------------------------------
+function setModeStatus(mode) {
+  setStatus('done', mode === 'native' ? 'Using Netflix native subtitles'
+    : mode === 'passthrough' ? 'Source and destination are the same language'
+    : 'Translation paused');
+}
+
+// ---------------------------------------------------------------------------
+// 9. Listen for timedtexttracks from injected.js
 // ---------------------------------------------------------------------------
 window.addEventListener('nst_tracks', async (e) => {
   let payload;
@@ -569,7 +648,6 @@ window.addEventListener('nst_tracks', async (e) => {
   const { movieId, tracks } = payload;
   if (!movieId) return;
   if (!isOnWatchPage()) {
-    setStatus('idle', 'Not playing a video');
     return;
   }
 
@@ -577,7 +655,6 @@ window.addEventListener('nst_tracks', async (e) => {
   // in Netflix's player, which populates ttDownloadables for that track).
   // Re-evaluate mode — if we now have a native URL we didn't have before, switch.
   if (movieId === currentMovieId) {
-    if (isSettingUp) return;
     availableTracks = tracks;
     const { mode, ttmlLang } = determineMode();
     if (mode !== currentMode || ttmlLang !== currentTtmlLang) {
@@ -589,22 +666,21 @@ window.addEventListener('nst_tracks', async (e) => {
 
   currentMovieId  = movieId;
   resetStateForNewVideo();
-  isSettingUp     = true;
   availableTracks = tracks;
 
   CLOG('Tracks received for movieId', movieId, '— langs:', tracks.map(t => t.language));
   setStatus('detected', `Found ${tracks.length} subtitle tracks`);
 
-  const { mode, ttmlLang, dstNotLoaded } = determineMode();
-  const ok = await applyMode(tracks, mode, ttmlLang);
-  if (!ok) { isSettingUp = false; return; }
+  SerialQueue.push(async () => {
+    const { mode, ttmlLang, dstNotLoaded } = determineMode();
+    const ok = await applyMode(tracks, mode, ttmlLang);
+    if (!ok) return;
 
-  ensureOverlay();
-  isSettingUp = false;
-  startSync();
+    ensureOverlay();
+    startSync();
 
-  const capturedMovieId = movieId;
-  waitForPlaybackStart().then(startTime => {
+    const capturedMovieId = movieId;
+    const startTime = await waitForPlaybackStart();
     if (currentMovieId !== capturedMovieId) return;
     if (!isOnWatchPage()) return;
     videoEl = document.querySelector('video');
@@ -614,20 +690,16 @@ window.addEventListener('nst_tracks', async (e) => {
       const flashMsg = dstNotLoaded
         ? `"${langLabel(dstLang)}" subtitle isn't loaded by Netflix yet — using AI translation instead`
         : 'AI translation active — uses API tokens';
-      initialTranslation(startTime, flashMsg);
+      const signal = TranslationSession.start();
+      initialTranslation(startTime, flashMsg, signal);
     } else {
-      const label = mode === 'native'
-        ? 'Using Netflix native subtitles'
-        : mode === 'passthrough'
-          ? 'Source and destination are the same language'
-          : 'Translation paused';
-      setStatus('done', label);
+      setModeStatus(mode);
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// 9. Listen for source language detection from injected.js
+// 10. Listen for source language detection from injected.js
 // ---------------------------------------------------------------------------
 window.addEventListener('nst_src_lang', (e) => {
   let payload;
@@ -641,48 +713,15 @@ window.addEventListener('nst_src_lang', (e) => {
 });
 
 // Re-evaluate and reload subtitles when src or dst language changes
-function onLanguageChanged(which) {
+function onLanguageChanged(reason) {
   if (!isOnWatchPage()) return;
-  if (!availableTracks.length || !currentMovieId || isSettingUp) return;
-  CLOG(`Language changed (${which}), re-evaluating mode`);
-
-  translationGen++;
-  isWindowTranslating = false;
-  isSettingUp = true;
-
-  const { mode, ttmlLang, dstNotLoaded } = determineMode();
-  applyMode(availableTracks, mode, ttmlLang).then(ok => {
-    isSettingUp = false;
-    if (!ok) return;
-
-    // dstLang may have changed while we were fetching — re-evaluate if so
-    const { mode: reMode, ttmlLang: reTtmlLang } = determineMode();
-    if (reMode !== currentMode || reTtmlLang !== currentTtmlLang) {
-      onLanguageChanged('recheck');
-      return;
-    }
-
-    const t = videoEl ? videoEl.currentTime : 0;
-    nextWindowStart = t;
-
-    if (needsAiTranslation && translationEnabled) {
-      const flashMsg = dstNotLoaded
-        ? `"${langLabel(dstLang)}" subtitle isn't loaded by Netflix yet — using AI translation instead`
-        : 'AI translation active — uses API tokens';
-      initialTranslation(t, flashMsg);
-    } else {
-      const label = mode === 'native'
-        ? 'Using Netflix native subtitles'
-        : mode === 'passthrough'
-          ? 'Source and destination are the same language'
-          : 'Translation paused';
-      setStatus('done', label);
-    }
-  });
+  if (!availableTracks.length || !currentMovieId) return;
+  CLOG(`Language changed (${reason}), re-evaluating mode`);
+  EventBus.emit('lang:changed', { reason });
 }
 
 // ---------------------------------------------------------------------------
-// 10. Playback start detection
+// 11. Playback start detection
 // ---------------------------------------------------------------------------
 function waitForPlaybackStart() {
   return new Promise(resolve => {
@@ -698,7 +737,7 @@ function waitForPlaybackStart() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. On-screen flash message
+// 12. On-screen flash message
 // ---------------------------------------------------------------------------
 let flashTimeout = null;
 
@@ -737,15 +776,13 @@ function showFlashMessage(msg) {
 }
 
 // ---------------------------------------------------------------------------
-// 12. Overlay
+// 13. Overlay
 // ---------------------------------------------------------------------------
 function applyTranslationEnabled() {
-  if (translationEnabled && needsAiTranslation && canTranslateNow()) {
-    if (videoEl) initialTranslation(videoEl.currentTime);
-  } else {
-    translationGen++;
-    isWindowTranslating = false;
-  }
+  if (translationEnabled && needsAiTranslation && canTranslateNow() && videoEl)
+    initialTranslation(videoEl.currentTime, null, TranslationSession.start());
+  else
+    TranslationSession.cancel();
 }
 
 function hideNetflixSubtitles() {
@@ -764,7 +801,7 @@ function applyOverlayStyle() {
 }
 
 function ensureOverlay() {
-  if (overlayEl) return;
+  if (overlayEl) return;  // listener attached only once — the null check is the guard
   hideNetflixSubtitles();
 
   overlayEl = document.createElement('div');
@@ -781,13 +818,13 @@ function ensureOverlay() {
   applyOverlayStyle();
   document.body.appendChild(overlayEl);
 
-  document.addEventListener('fullscreenchange', () => {
-    const fs = document.fullscreenElement;
-    const target = fs || document.body;
+  fullscreenHandler = () => {
+    const target = document.fullscreenElement || document.body;
     target.appendChild(overlayEl);
     const flash = document.getElementById('nst-flash');
     if (flash) target.appendChild(flash);
-  });
+  };
+  document.addEventListener('fullscreenchange', fullscreenHandler);
 }
 
 function renderSubtitle(text) {
@@ -825,35 +862,23 @@ function startSync() {
   if (seekedHandler) videoEl.removeEventListener('seeked', seekedHandler);
   if (playHandler) videoEl.removeEventListener('play', playHandler);
   if (pauseHandler) videoEl.removeEventListener('pause', pauseHandler);
-  seekedHandler = () => {
-    const t = videoEl.currentTime;
-    translationGen++;
-    isWindowTranslating = false;
-    nextWindowStart = t;
-    if (needsAiTranslation && translationEnabled && canTranslateNow()) {
-      CLOG(`Seeked to ${fmt(t)}, restarting translation`);
-      initialTranslation(t);
-    }
-  };
-  videoEl.addEventListener('seeked', seekedHandler);
 
+  seekedHandler = () => {
+    nextWindowStart = videoEl.currentTime;
+    rollingWindowEnd = 0;
+    EventBus.emit('playback:seeked', { time: videoEl.currentTime });
+  };
   playHandler = () => {
     if (!isOnWatchPage()) return;
-    const t = videoEl.currentTime;
-    nextWindowStart = t;
-    if (needsAiTranslation && translationEnabled) {
-      CLOG(`Playback resumed at ${fmt(t)}, restarting translation`);
-      initialTranslation(t);
-    } else {
-      setStatus('done', 'Playback resumed');
-    }
+    nextWindowStart = videoEl.currentTime;
+    EventBus.emit('playback:play', { time: videoEl.currentTime });
   };
   pauseHandler = () => {
     if (!isOnWatchPage()) return;
-    translationGen++;
-    isWindowTranslating = false;
-    setStatus('done', 'Translation paused — playback paused');
+    EventBus.emit('playback:pause', {});
   };
+
+  videoEl.addEventListener('seeked', seekedHandler);
   videoEl.addEventListener('play', playHandler);
   videoEl.addEventListener('pause', pauseHandler);
 
@@ -866,7 +891,7 @@ function startSync() {
       }
       if (lastWatchPageState !== false) {
         lastWatchPageState = false;
-        setStatus('idle', 'Not playing a video');
+        setStatus('idle', 'Waiting for a video to play…');
       }
       return;
     }
@@ -875,13 +900,20 @@ function startSync() {
     const t = videoEl.currentTime;
 
     // Lookahead: trigger next rolling window before the current one is exhausted
-    if (needsAiTranslation && !isWindowTranslating && translationEnabled && canTranslateNow() &&
-        t >= nextWindowStart - LOOKAHEAD_SECONDS) {
-      translateWindow(nextWindowStart, nextWindowStart + windowMinutes * 60, translationGen);
+    if (needsAiTranslation && translationEnabled && canTranslateNow() &&
+        t >= nextWindowStart - LOOKAHEAD_SECONDS &&
+        nextWindowStart >= rollingWindowEnd) {
+      const wEnd = nextWindowStart + windowMinutes * 60;
+      rollingWindowEnd = wEnd;
+      const signal = TranslationSession.signal;
+      if (signal && !signal.aborted) {
+        translateWindow(nextWindowStart, wEnd, signal)
+          .catch(() => { rollingWindowEnd = 0; });
+      }
     }
 
     // When AI is disabled, fall back to original (source-language) segments
-    const segs = (needsAiTranslation && !translationEnabled) ? originalSegments : overlaySegments;
+    const segs = (needsAiTranslation && !translationEnabled) ? SegmentStore.getOriginal() : SegmentStore.getOverlay();
     const seg  = findSegment(t, segs);
     const text = seg ? seg.text : '';
     if (verboseLogging && t - lastVerboseLogTime >= 30) {
@@ -902,7 +934,7 @@ function startSync() {
 }
 
 // ---------------------------------------------------------------------------
-// 13. Status
+// 14. Status
 // ---------------------------------------------------------------------------
 function setStatus(state, message) {
   browser.storage.local.set({ translationStatus: { state, message, ts: Date.now() } });
