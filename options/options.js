@@ -15,19 +15,73 @@ function showStatus(message, type) {
   }
 }
 
-// Debug logging toggle
-const debugLoggingCheckbox = document.getElementById('debugLogging');
-browser.storage.local.get('debugLogging').then(r => {
-  debugLoggingCheckbox.checked = r.debugLogging || false;
+// Logging toggles
+const consoleLoggingCheckbox = document.getElementById('consoleLogging');
+const verboseLoggingCheckbox = document.getElementById('verboseLogging');
+browser.storage.local.get(['consoleLogging', 'verboseLogging']).then(r => {
+  consoleLoggingCheckbox.checked = r.consoleLogging || false;
+  verboseLoggingCheckbox.checked = r.verboseLogging || false;
 });
-debugLoggingCheckbox.addEventListener('change', () => {
-  browser.storage.local.set({ debugLogging: debugLoggingCheckbox.checked });
+consoleLoggingCheckbox.addEventListener('change', () => {
+  browser.storage.local.set({ consoleLogging: consoleLoggingCheckbox.checked });
 });
+verboseLoggingCheckbox.addEventListener('change', () => {
+  browser.storage.local.set({ verboseLogging: verboseLoggingCheckbox.checked });
+});
+
+// Log viewer
+const LOG_KEY = 'nstLogBuffer';
+const logOutput = document.getElementById('logOutput');
+const logCount = document.getElementById('logCount');
+const copyLogsBtn = document.getElementById('copyLogs');
+const clearLogsBtn = document.getElementById('clearLogs');
+const refreshLogsBtn = document.getElementById('refreshLogs');
+
+function renderLogs(lines) {
+  const arr = Array.isArray(lines) ? lines : [];
+  logOutput.value = arr.join('\n');
+  logCount.textContent = arr.length ? `Log entries: ${arr.length}` : 'No logs yet.';
+}
+
+async function loadLogs() {
+  const r = await browser.storage.local.get(LOG_KEY);
+  renderLogs(r[LOG_KEY]);
+}
+
+copyLogsBtn.addEventListener('click', async () => {
+  const text = logOutput.value || '';
+  if (!text) {
+    showStatus('No logs to copy.', 'info');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showStatus('Logs copied to clipboard.', 'success');
+  } catch (err) {
+    showStatus(`Copy failed: ${err.message}`, 'error');
+  }
+});
+
+clearLogsBtn.addEventListener('click', async () => {
+  await browser.storage.local.set({ [LOG_KEY]: [] });
+  renderLogs([]);
+  showStatus('Logs cleared.', 'success');
+});
+
+refreshLogsBtn.addEventListener('click', loadLogs);
 
 // Load saved key on open
 browser.storage.local.get('openaiApiKey').then(result => {
   if (result.openaiApiKey) {
     apiKeyInput.value = result.openaiApiKey;
+  }
+});
+
+loadLogs();
+
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[LOG_KEY]) {
+    renderLogs(changes[LOG_KEY].newValue);
   }
 });
 

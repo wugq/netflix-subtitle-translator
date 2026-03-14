@@ -177,3 +177,25 @@ input[type="password"]:focus {
   height: 15px;
   flex-shrink: 0;
 }
+
+.log-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0.5rem;
+  flex-wrap: wrap;
+}
+
+.log-output {
+  width: 100%;
+  min-height: 180px;
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #cfcfcf;
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  line-height: 1.4;
+  resize: vertical;
+}

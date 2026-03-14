@@ -53,17 +53,11 @@
         for (const key of Object.keys(urlToLang)) delete urlToLang[key];
         for (const track of tracks) extractUrls(track);
 
-        const availableLangs = tracks.map(t => ({
-          code:  t.language,
-          label: t.languageDescription || t.language,
-        }));
-
         window.dispatchEvent(
           new CustomEvent('nst_tracks', {
             detail: JSON.stringify({
               movieId: data.result.movieId,
               tracks,
-              availableLangs,
             }),
           })
         );

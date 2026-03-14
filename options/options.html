@@ -33,10 +33,20 @@
     <section class="card">
       <h2>Developer</h2>
       <label class="checkbox-row">
-        <input type="checkbox" id="debugLogging" />
-        Enable debug logging in browser console
+        <input type="checkbox" id="consoleLogging" />
+        Console logging — key events printed to the browser console
       </label>
-      <p class="note" style="margin-top:0.6rem;">When on, logs are printed as [Netflix Subtitle Translator] …</p>
+      <label class="checkbox-row" style="margin-top:0.5rem;">
+        <input type="checkbox" id="verboseLogging" />
+        Verbose logging — detailed trace saved to the log viewer below
+      </label>
+      <div class="log-actions" style="margin-top:0.8rem;">
+        <button id="copyLogs" class="btn btn-secondary">Copy Logs</button>
+        <button id="clearLogs" class="btn btn-secondary">Clear Logs</button>
+        <button id="refreshLogs" class="btn btn-secondary">Refresh</button>
+      </div>
+      <div id="logCount" class="note">No logs yet.</div>
+      <textarea id="logOutput" class="log-output" readonly spellcheck="false" placeholder="Logs will appear here when debug logging is enabled."></textarea>
     </section>
 
     <section class="card info">
