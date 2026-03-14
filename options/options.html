@@ -42,9 +42,10 @@
     <section class="card info">
       <h2>How It Works</h2>
       <ol>
-        <li>Open a Netflix show — English subtitles will be auto-enabled.</li>
-        <li>The extension intercepts the subtitle file and translates it via GPT.</li>
-        <li>Chinese subtitles appear in the Netflix player.</li>
+        <li>Open a Netflix show — select your source language in Netflix's player and your destination language in the extension popup.</li>
+        <li>The extension intercepts subtitles and translates them via GPT, using the English track as input when available for better results.</li>
+        <li>Translated subtitles are displayed in a custom overlay. If the destination language is natively available on Netflix, no AI translation is used.</li>
+        <li>Translation is buffered progressively to minimise API usage. You can pause or resume translation at any time from the popup.</li>
       </ol>
       <p class="note">Your API key is stored locally in your browser and never sent anywhere except OpenAI.</p>
     </section>
