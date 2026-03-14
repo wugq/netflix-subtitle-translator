@@ -15,6 +15,15 @@ function showStatus(message, type) {
   }
 }
 
+// Debug logging toggle
+const debugLoggingCheckbox = document.getElementById('debugLogging');
+browser.storage.local.get('debugLogging').then(r => {
+  debugLoggingCheckbox.checked = r.debugLogging || false;
+});
+debugLoggingCheckbox.addEventListener('change', () => {
+  browser.storage.local.set({ debugLogging: debugLoggingCheckbox.checked });
+});
+
 // Load saved key on open
 browser.storage.local.get('openaiApiKey').then(result => {
   if (result.openaiApiKey) {

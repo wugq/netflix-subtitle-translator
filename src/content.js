@@ -2,7 +2,9 @@
 // parses TTML locally, determines translation mode, and renders a custom overlay.
 'use strict';
 
-const LOG = (...a) => console.log('[SubtitleTranslator]', ...a);
+const APP_NAME = 'Netflix Subtitle Translator';
+let debugLogging = false;
+const LOG = (...a) => { if (debugLogging) console.log(`[${APP_NAME}]`, ...a); };
 const TTML_NS = 'http://www.w3.org/ns/ttml';
 
 const LOOKAHEAD_SECONDS = 60;
@@ -49,7 +51,7 @@ let showAiNotice       = true;
 
 // Load persisted settings
 browser.storage.local.get([
-  'subtitleFontSize', 'subtitleBottom', 'windowMinutes', 'translationEnabled', 'dstLang', 'showAiNotice',
+  'subtitleFontSize', 'subtitleBottom', 'windowMinutes', 'translationEnabled', 'dstLang', 'showAiNotice', 'debugLogging',
 ]).then(r => {
   if (r.subtitleFontSize   != null) subtitleFontSize   = r.subtitleFontSize;
   if (r.subtitleBottom     != null) subtitleBottom     = r.subtitleBottom;
@@ -57,6 +59,7 @@ browser.storage.local.get([
   if (r.translationEnabled != null) translationEnabled = r.translationEnabled;
   if (r.dstLang            != null) dstLang            = r.dstLang;
   if (r.showAiNotice       != null) showAiNotice       = r.showAiNotice;
+  if (r.debugLogging       != null) debugLogging       = r.debugLogging;
   applyOverlayStyle();
 });
 
@@ -73,7 +76,8 @@ browser.storage.onChanged.addListener((changes, area) => {
     dstLang = changes.dstLang.newValue;
     onLanguageChanged('dstLang');
   }
-  if ('showAiNotice' in changes) showAiNotice = changes.showAiNotice.newValue;
+  if ('showAiNotice'  in changes) showAiNotice  = changes.showAiNotice.newValue;
+  if ('debugLogging'  in changes) debugLogging  = changes.debugLogging.newValue;
   applyOverlayStyle();
 });
 
@@ -435,6 +439,13 @@ function onLanguageChanged(which) {
   applyMode(availableTracks, mode, ttmlLang).then(ok => {
     isSettingUp = false;
     if (!ok) return;
+
+    // dstLang may have changed while we were fetching — re-evaluate if so
+    const { mode: reMode, ttmlLang: reTtmlLang } = determineMode();
+    if (reMode !== currentMode || reTtmlLang !== currentTtmlLang) {
+      onLanguageChanged('recheck');
+      return;
+    }
 
     const t = videoEl ? videoEl.currentTime : 0;
     nextWindowStart = t;

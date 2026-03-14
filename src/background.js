@@ -1,7 +1,14 @@
 // background.js — handles translation requests from content script
 'use strict';
 
-const LOG = (...a) => console.log('[SubtitleTranslator]', ...a);
+const APP_NAME = 'Netflix Subtitle Translator';
+let debugLogging = false;
+const LOG = (...a) => { if (debugLogging) console.log(`[${APP_NAME}]`, ...a); };
+
+browser.storage.local.get('debugLogging').then(r => { debugLogging = r.debugLogging || false; });
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && 'debugLogging' in changes) debugLogging = changes.debugLogging.newValue;
+});
 
 // ---------------------------------------------------------------------------
 // Storage
