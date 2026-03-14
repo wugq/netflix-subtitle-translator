@@ -14,81 +14,87 @@
     </div>
   </header>
 
-  <section class="toggle-panel">
-    <button id="toggleTranslation" class="toggle-btn">Stop Translation</button>
+  <section id="offNetflix" hidden>
+    <p class="off-netflix-msg">Open <strong>netflix.com</strong> to use this extension.</p>
   </section>
 
-  <section class="lang-panel">
-    <div class="display-label">Destination language</div>
-    <select id="dstLang">
-      <option value="en">English (English)</option>
-      <option value="zh-Hans">Simplified Chinese (简体中文)</option>
-      <option value="zh-Hant">Traditional Chinese (繁體中文)</option>
-      <option value="ja">Japanese (日本語)</option>
-      <option value="ko">Korean (한국어)</option>
-      <option value="es">Spanish (Español)</option>
-      <option value="fr">French (Français)</option>
-      <option value="de">German (Deutsch)</option>
-      <option value="pt">Portuguese (Português)</option>
-      <option value="it">Italian (Italiano)</option>
-      <option value="ru">Russian (Русский)</option>
-      <option value="ar">Arabic (العربية)</option>
-      <option value="hi">Hindi (हिन्दी)</option>
-      <option value="th">Thai (ภาษาไทย)</option>
-      <option value="vi">Vietnamese (Tiếng Việt)</option>
-      <option value="id">Indonesian (Bahasa Indonesia)</option>
-      <option value="nl">Dutch (Nederlands)</option>
-      <option value="pl">Polish (Polski)</option>
-      <option value="tr">Turkish (Türkçe)</option>
-    </select>
-  </section>
+  <div id="mainContent">
+    <section class="toggle-panel">
+      <button id="toggleTranslation" class="toggle-btn">Stop Translation</button>
+    </section>
 
-  <section class="notice-panel">
-    <label class="checkbox-row">
-      <input type="checkbox" id="showNotice" checked />
-      Show notice on screen
-    </label>
-  </section>
+    <section class="lang-panel">
+      <div class="display-label">Destination language</div>
+      <select id="dstLang">
+        <option value="en">English (English)</option>
+        <option value="zh-Hans">Simplified Chinese (简体中文)</option>
+        <option value="zh-Hant">Traditional Chinese (繁體中文)</option>
+        <option value="ja">Japanese (日本語)</option>
+        <option value="ko">Korean (한국어)</option>
+        <option value="es">Spanish (Español)</option>
+        <option value="fr">French (Français)</option>
+        <option value="de">German (Deutsch)</option>
+        <option value="pt">Portuguese (Português)</option>
+        <option value="it">Italian (Italiano)</option>
+        <option value="ru">Russian (Русский)</option>
+        <option value="ar">Arabic (العربية)</option>
+        <option value="hi">Hindi (हिन्दी)</option>
+        <option value="th">Thai (ภาษาไทย)</option>
+        <option value="vi">Vietnamese (Tiếng Việt)</option>
+        <option value="id">Indonesian (Bahasa Indonesia)</option>
+        <option value="nl">Dutch (Nederlands)</option>
+        <option value="pl">Polish (Polski)</option>
+        <option value="tr">Turkish (Türkçe)</option>
+      </select>
+    </section>
 
-  <section class="display-panel">
-    <div class="display-label">Subtitle display</div>
+    <section class="notice-panel">
+      <label class="checkbox-row">
+        <input type="checkbox" id="showNotice" checked />
+        Show notice on screen
+      </label>
+    </section>
 
-    <div class="control-row">
-      <span class="control-name">Font size</span>
-      <div class="stepper">
-        <button class="step-btn" id="fontDown">−</button>
-        <span class="step-val" id="fontVal">24px</span>
-        <button class="step-btn" id="fontUp">＋</button>
+    <section class="display-panel">
+      <div class="display-label">Subtitle display</div>
+
+      <div class="control-row">
+        <span class="control-name">Font size</span>
+        <div class="stepper">
+          <button class="step-btn" id="fontDown">−</button>
+          <span class="step-val" id="fontVal">24px</span>
+          <button class="step-btn" id="fontUp">＋</button>
+        </div>
       </div>
-    </div>
 
-    <div class="control-row">
-      <span class="control-name">Position</span>
-      <div class="stepper">
-        <button class="step-btn" id="posDown">↓</button>
-        <span class="step-val" id="posVal">8%</span>
-        <button class="step-btn" id="posUp">↑</button>
+      <div class="control-row">
+        <span class="control-name">Position</span>
+        <div class="stepper">
+          <button class="step-btn" id="posDown">↓</button>
+          <span class="step-val" id="posVal">8%</span>
+          <button class="step-btn" id="posUp">↑</button>
+        </div>
       </div>
-    </div>
 
-    <div class="control-row">
-      <span class="control-name">Translate ahead</span>
-      <div class="stepper">
-        <button class="step-btn" id="winDown">−</button>
-        <span class="step-val" id="winVal">5 min</span>
-        <button class="step-btn" id="winUp">＋</button>
+      <div class="control-row">
+        <span class="control-name">Translate ahead</span>
+        <div class="stepper">
+          <button class="step-btn" id="winDown">−</button>
+          <span class="step-val" id="winVal">5 min</span>
+          <button class="step-btn" id="winUp">＋</button>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="status-panel">
-    <div class="status-label">Extension Status</div>
-    <div id="statusRow" class="status-row state-idle">
-      <span id="statusDot" class="status-dot"></span>
-      <span id="statusText" class="status-text">Waiting for a video to play…</span>
-    </div>
-    <div id="statusTime" class="status-time"></div>
-  </section>
+    <section class="status-panel">
+      <div class="status-label">Extension Status</div>
+      <div id="statusRow" class="status-row state-idle">
+        <span id="statusDot" class="status-dot"></span>
+        <span id="statusText" class="status-text">Waiting for a video to play…</span>
+      </div>
+      <div id="statusTime" class="status-time"></div>
+    </section>
+  </div>
 
   <footer>
     <button id="openOptions" class="link-btn">Open advanced settings</button>

@@ -58,6 +58,22 @@ h1 {
   border: 1px solid #5a2e2e;
 }
 
+/* Not-on-Netflix message */
+#offNetflix {
+  padding: 28px 14px;
+  text-align: center;
+}
+
+.off-netflix-msg {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.off-netflix-msg strong {
+  color: #e50914;
+}
+
 /* Translation toggle */
 .toggle-panel {
   margin: 10px 14px 0;

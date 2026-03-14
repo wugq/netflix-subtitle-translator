@@ -70,8 +70,25 @@ class PopupController {
       ai_notice:   { cls: 'state-ai_notice' },
     };
 
-    this._loadAndRender();
+    this._offNetflix  = document.getElementById('offNetflix');
+    this._mainContent = document.getElementById('mainContent');
+
+    this._checkCurrentTab();
     this._bindEvents();
+  }
+
+  _checkCurrentTab() {
+    browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
+      const url = tabs[0]?.url || '';
+      if (!url.startsWith('https://www.netflix.com') && !url.startsWith('http://www.netflix.com')) {
+        this._offNetflix.hidden  = false;
+        this._mainContent.hidden = true;
+      } else {
+        this._offNetflix.hidden  = true;
+        this._mainContent.hidden = false;
+        this._loadAndRender();
+      }
+    });
   }
 
   _bindEvents() {
