@@ -79,7 +79,7 @@ const SegmentStore = (() => {
     getOverlay() { return _overlay; },
     getOriginal(){ return _orig; },
     pendingIndices(from, to) {
-      return _overlay.reduce((a, s, i) => (!_done[i] && s.begin >= from && s.begin < to) ? [...a, i] : a, []);
+      return _overlay.reduce((a, s, i) => (!_done[i] && s.end > from && s.begin < to) ? [...a, i] : a, []);
     },
     applyTranslations(indices, map) {
       let n = 0;
@@ -298,13 +298,17 @@ function parseTtmlTime(t, params) {
   const tickRate = params?.tickRate || 10000000;
   const frameRate = params?.frameRate || 30;
 
+  // clock-time: hh:mm:ss.ms or hh:mm:ss:ff
   const m = t.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/);
   if (m) return +m[1] * 3600 + +m[2] * 60 + +m[3];
+  
   const m2 = t.match(/^(\d+):(\d+(?:\.\d+)?)$/);
   if (m2) return +m2[1] * 60 + +m2[2];
+  
   const m3 = t.match(/^(\d+):(\d+):(\d+):(\d+)$/);
   if (m3) return +m3[1] * 3600 + +m3[2] * 60 + +m3[3] + (+m3[4] / frameRate);
 
+  // offset-time: value+unit
   const unit = t.match(/^(\d+(?:\.\d+)?)(h|m|s|ms|f|t)$/);
   if (unit) {
     const v = parseFloat(unit[1]);
@@ -317,6 +321,7 @@ function parseTtmlTime(t, params) {
     if (u === 't')  return v / tickRate;
   }
 
+  // Pure digits: assume ticks if no unit, or just float
   return parseFloat(t) / tickRate;
 }
 
@@ -340,100 +345,77 @@ function parseTtml(xmlString) {
   if (err) throw new Error('XML parse error: ' + err.textContent.slice(0, 100));
 
   const tt = doc.getElementsByTagNameNS(TTML_NS, 'tt')[0];
-  const tickRate = parseInt(
-    tt?.getAttributeNS(TTML_PARAM_NS, 'tickRate') || tt?.getAttribute('tickRate') || '10000000', 10
-  );
-  const frameRate = parseFloat(
-    tt?.getAttributeNS(TTML_PARAM_NS, 'frameRate') || tt?.getAttribute('frameRate') || '30'
-  );
-  const frameRateMultiplierRaw =
-    tt?.getAttributeNS(TTML_PARAM_NS, 'frameRateMultiplier') ||
-    tt?.getAttribute('frameRateMultiplier') ||
-    '';
+  const ttp = (ns, name) => tt?.getAttributeNS(ns, name) || tt?.getAttribute(`ttp:${name}`) || tt?.getAttribute(name);
+
+  const tickRate = parseInt(ttp(TTML_PARAM_NS, 'tickRate') || '10000000', 10);
+  const frameRate = parseFloat(ttp(TTML_PARAM_NS, 'frameRate') || '30');
+  const frameRateMultiplierRaw = ttp(TTML_PARAM_NS, 'frameRateMultiplier') || '';
+  
   let frameRateMultiplier = 1;
   if (frameRateMultiplierRaw) {
     const parts = frameRateMultiplierRaw.trim().split(/\s+/).map(Number);
-    if (parts.length === 2 && parts[0] && parts[1]) {
-      frameRateMultiplier = parts[0] / parts[1];
-    }
+    if (parts.length === 2 && parts[0] && parts[1]) frameRateMultiplier = parts[0] / parts[1];
   }
-  const timeBase =
-    tt?.getAttributeNS(TTML_PARAM_NS, 'timeBase') ||
-    tt?.getAttribute('timeBase') ||
-    'media';
+
   const params = {
     tickRate,
     frameRate: frameRate * frameRateMultiplier,
-    timeBase,
+    timeBase: ttp(TTML_PARAM_NS, 'timeBase') || 'media',
   };
 
-  // ttp:presentationTimeOffset — subtract from all times so they align with videoEl.currentTime
-  const presentationTimeOffset = parseTtmlTime(
-    tt?.getAttributeNS(TTML_PARAM_NS, 'presentationTimeOffset') ||
-    tt?.getAttribute('ttp:presentationTimeOffset') ||
-    '0',
-    params
-  );
+  // ttp:presentationTimeOffset — some Netflix assets use this to shift the zero-point.
+  // It should be subtracted from all absolute times.
+  const presentationTimeOffset = parseTtmlTime(ttp(TTML_PARAM_NS, 'presentationTimeOffset') || '0', params);
 
-  // Accumulate begin offset from ancestor <div> / <body> elements (TTML times are relative)
-  function getParentOffset(el) {
+  // Accumulate begin offset from ancestor elements.
+  // In TTML, times on <p> are relative to the parent container's begin time.
+  function getAbsoluteOffset(el) {
     let offset = 0;
-    let parent = el.parentElement;
-    while (parent && parent !== tt) {
-      const b = parent.getAttribute('begin');
+    let curr = el.parentElement;
+    while (curr && curr !== tt) {
+      const b = curr.getAttribute('begin');
       if (b) offset += parseTtmlTime(b, params);
-      parent = parent.parentElement;
+      curr = curr.parentElement;
     }
     return offset;
   }
 
-  VLOG('TTML timing params', {
-    tickRate,
-    frameRate,
-    frameRateMultiplier: frameRateMultiplierRaw || '1 1',
-    effectiveFrameRate: params.frameRate,
-    timeBase: params.timeBase,
-    presentationTimeOffset,
-  });
+  VLOG('TTML timing params', { ...params, presentationTimeOffset });
 
   const ps = doc.getElementsByTagNameNS(TTML_NS, 'p');
   const segments = [];
-  let missingEndCount = 0;
   let pIndex = 0;
+
   for (const p of ps) {
     const text = nodeToText(p).trim();
     if (!text) continue;
-    const idAttr = p.getAttribute('xml:id') || p.getAttribute('id');
+
     const beginAttr = p.getAttribute('begin');
     const endAttr   = p.getAttribute('end');
     const durAttr   = p.getAttribute('dur');
-    const key = `${idAttr || 'p' + pIndex}|${beginAttr || ''}|${endAttr || ''}|${durAttr || ''}`;
+    if (!beginAttr && !endAttr && !durAttr) continue;
 
-    const parentOffset = getParentOffset(p);
-    let begin = beginAttr != null ? parseTtmlTime(beginAttr, params) + parentOffset - presentationTimeOffset : null;
-    let end   = endAttr   != null ? parseTtmlTime(endAttr,   params) + parentOffset - presentationTimeOffset : null;
+    const containerOffset = getAbsoluteOffset(p);
+    let begin = beginAttr ? parseTtmlTime(beginAttr, params) + containerOffset : containerOffset;
+    let end   = endAttr   ? parseTtmlTime(endAttr,   params) + containerOffset : null;
 
-    if (end == null && durAttr) {
-      const dur = parseTtmlTime(durAttr, params);
-      end = (begin ?? 0) + dur;
-      missingEndCount++;
-    } else if (begin == null && durAttr && end != null) {
-      const dur = parseTtmlTime(durAttr, params);
-      begin = end - dur;
-      missingEndCount++;
+    if (end === null && durAttr) {
+      end = begin + parseTtmlTime(durAttr, params);
     }
 
-    if (begin == null || end == null) continue;
+    if (begin === null || end === null) continue;
+
+    // Apply global presentation offset
+    begin -= presentationTimeOffset;
+    end   -= presentationTimeOffset;
+
+    const idAttr = p.getAttribute('xml:id') || p.getAttribute('id');
+    const key = `${idAttr || 'p' + pIndex}|${beginAttr || ''}|${endAttr || ''}|${durAttr || ''}`;
 
     segments.push({ id: idAttr || null, key, begin, end, text });
     pIndex++;
   }
-  if (missingEndCount) {
-    VLOG('TTML segments with dur used for end/begin', { count: missingEndCount });
-  }
-  if (segments.length) {
-    VLOG('TTML segment sample', segments.slice(0, 3).map(s => ({ begin: s.begin, end: s.end, text: s.text })));
-  }
+
   segments.sort((a, b) => a.begin - b.begin);
   return segments;
 }
@@ -441,6 +423,11 @@ function parseTtml(xmlString) {
 // ---------------------------------------------------------------------------
 // 4.5. Playback / page state helpers
 // ---------------------------------------------------------------------------
+function getMovieIdFromUrl() {
+  const m = location.pathname.match(/\/watch\/(\d+)/);
+  return m ? m[1] : null;
+}
+
 function isOnWatchPage() {
   return location.pathname.startsWith('/watch');
 }
@@ -578,7 +565,8 @@ async function translateWindow(fromTime, toTime, signal) {
   }
 
   if (signal.aborted) return false;
-  nextWindowStart = toTime;
+  // Monotonic update — prevent stale concurrent calls from jumping backwards
+  nextWindowStart = Math.max(nextWindowStart, toTime);
   setStatus('done', `Translated up to ${fmt(toTime)} (at ${nowFmt()})`);
   return true;
 }
@@ -591,7 +579,11 @@ async function initialTranslation(startTime, flashMsg, signal) {
     setStatus('done', 'Translation paused — playback not active');
     return;
   }
-  const windowEnd = startTime + windowMinutes * 60;
+  const duration = videoEl?.duration || Infinity;
+  const windowEnd = Math.min(startTime + windowMinutes * 60, duration);
+
+  // Prevent tick() from interjecting while this progressive chain is running
+  rollingWindowEnd = windowEnd;
 
   const msg = flashMsg || 'AI translation active — uses API tokens';
   setStatus('ai_notice', msg);
@@ -623,6 +615,21 @@ async function applyMode(tracks, mode, ttmlLang) {
   if (!segments) return false;
 
   SegmentStore.load(segments);
+
+  // Hydrate from background cache
+  try {
+    const res = await browser.runtime.sendMessage({ type: 'getCache', movieId: currentMovieId });
+    if (res?.ok && res.translations) {
+      const count = SegmentStore.applyTranslations(
+        segments.map((_, i) => i),
+        res.translations
+      );
+      if (count > 0) CLOG(`Hydrated ${count} translations from cache`);
+    }
+  } catch (err) {
+    CLOG('Cache hydration failed:', err.message);
+  }
+
   needsAiTranslation = (mode === 'ai');
   currentMode        = mode;
   currentTtmlLang    = ttmlLang;
@@ -647,7 +654,13 @@ window.addEventListener('nst_tracks', async (e) => {
 
   const { movieId, tracks } = payload;
   if (!movieId) return;
-  if (!isOnWatchPage()) {
+  if (!isOnWatchPage()) return;
+
+  // CRITICAL: Netflix often pre-fetches the manifest for the NEXT episode
+  // several minutes before the current one ends. We must ignore it.
+  const urlId = getMovieIdFromUrl();
+  if (urlId && String(movieId) !== String(urlId)) {
+    VLOG('Ignoring manifest for non-active movie (pre-fetch)', { manifestId: movieId, urlId });
     return;
   }
 
@@ -778,13 +791,6 @@ function showFlashMessage(msg) {
 // ---------------------------------------------------------------------------
 // 13. Overlay
 // ---------------------------------------------------------------------------
-function applyTranslationEnabled() {
-  if (translationEnabled && needsAiTranslation && canTranslateNow() && videoEl)
-    initialTranslation(videoEl.currentTime, null, TranslationSession.start());
-  else
-    TranslationSession.cancel();
-}
-
 function hideNetflixSubtitles() {
   if (document.getElementById('nst-hide-style')) return;
   const el = document.createElement('style');
@@ -843,15 +849,29 @@ function renderSubtitle(text) {
   ">${lines.join('<br>')}</div>`;
 }
 
-// Binary search — O(log n) at 60fps
-function findSegment(time, segs) {
-  let lo = 0, hi = segs.length - 1, result = null;
+// Return all segments overlapping current time (to support overlapping text)
+function findSegments(time, segs) {
+  if (!segs.length) return [];
+  // Binary search to find start index (last segment that begins at or before 'time')
+  let lo = 0, hi = segs.length - 1, startIdx = 0;
   while (lo <= hi) {
     const mid = (lo + hi) >>> 1;
-    if (segs[mid].begin <= time) { result = segs[mid]; lo = mid + 1; }
+    if (segs[mid].begin <= time) { startIdx = mid; lo = mid + 1; }
     else hi = mid - 1;
   }
-  return result && time < result.end ? result : null;
+  
+  const results = [];
+  // Scan backwards from startIdx for any segments that haven't ended yet.
+  for (let i = startIdx; i >= 0; i--) {
+    const s = segs[i];
+    if (s.begin <= time && s.end > time) {
+      results.push(s);
+    }
+    // Optimization: Netflix subtitles rarely exceed 20s. 60s is a very safe limit.
+    if (time - s.begin > 60) break; 
+  }
+  // Sort by begin time to maintain reading order
+  return results.sort((a, b) => a.begin - b.begin);
 }
 
 function startSync() {
@@ -864,9 +884,17 @@ function startSync() {
   if (pauseHandler) videoEl.removeEventListener('pause', pauseHandler);
 
   seekedHandler = () => {
-    nextWindowStart = videoEl.currentTime;
+    const t = videoEl.currentTime;
+    CLOG(`Seeked to ${fmt(t)}`);
+    
+    // Stop any ongoing translation work immediately
+    TranslationSession.cancel();
+    
+    // Reset window state to force a re-translation if needed
+    nextWindowStart = t;
     rollingWindowEnd = 0;
-    EventBus.emit('playback:seeked', { time: videoEl.currentTime });
+    
+    EventBus.emit('playback:seeked', { time: t });
   };
   playHandler = () => {
     if (!isOnWatchPage()) return;
@@ -903,27 +931,33 @@ function startSync() {
     if (needsAiTranslation && translationEnabled && canTranslateNow() &&
         t >= nextWindowStart - LOOKAHEAD_SECONDS &&
         nextWindowStart >= rollingWindowEnd) {
-      const wEnd = nextWindowStart + windowMinutes * 60;
-      rollingWindowEnd = wEnd;
-      const signal = TranslationSession.signal;
-      if (signal && !signal.aborted) {
-        translateWindow(nextWindowStart, wEnd, signal)
-          .catch(() => { rollingWindowEnd = 0; });
+      const duration = videoEl.duration || Infinity;
+      const wEnd = Math.min(nextWindowStart + windowMinutes * 60, duration);
+      
+      if (wEnd > nextWindowStart) {
+        rollingWindowEnd = wEnd;
+        const signal = TranslationSession.signal;
+        if (signal && !signal.aborted) {
+          translateWindow(nextWindowStart, wEnd, signal)
+            .catch(() => { rollingWindowEnd = 0; });
+        }
       }
     }
 
     // When AI is disabled, fall back to original (source-language) segments
     const segs = (needsAiTranslation && !translationEnabled) ? SegmentStore.getOriginal() : SegmentStore.getOverlay();
-    const seg  = findSegment(t, segs);
-    const text = seg ? seg.text : '';
+    const activeSegs = findSegments(t, segs);
+    const text = activeSegs.map(s => s.text).join('\n');
+    
     if (verboseLogging && t - lastVerboseLogTime >= 30) {
       lastVerboseLogTime = t;
       VLOG('Playback timing', {
         currentTime: t,
         playbackRate: videoEl.playbackRate,
-        segBegin: seg?.begin ?? null,
-        segEnd: seg?.end ?? null,
-        segText: seg?.text ?? null,
+        activeCount: activeSegs.length,
+        firstSegText: activeSegs[0]?.text ?? null,
+        nextWindowStart,
+        rollingWindowEnd,
       });
     }
     if (text !== lastRenderedText) { lastRenderedText = text; renderSubtitle(text); }

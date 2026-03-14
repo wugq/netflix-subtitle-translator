@@ -170,6 +170,43 @@ async function translateItems(apiKey, items, dstLang) {
 }
 
 // ---------------------------------------------------------------------------
+// Translation Cache (Persistent)
+// ---------------------------------------------------------------------------
+const CACHE_KEY = 'nstTranslationCache';
+let translationCache = {}; // movieId -> { key: text }
+
+// Load cache from storage on startup
+browser.storage.local.get(CACHE_KEY).then(r => {
+  if (r[CACHE_KEY]) translationCache = r[CACHE_KEY];
+  CLOG('Cache loaded, movies:', Object.keys(translationCache).length);
+});
+
+async function saveCache() {
+  try {
+    // Keep only the last 10 movies to prevent storage bloat
+    const movieIds = Object.keys(translationCache);
+    if (movieIds.length > 10) {
+      const toRemove = movieIds.slice(0, movieIds.length - 10);
+      toRemove.forEach(id => delete translationCache[id]);
+    }
+    await browser.storage.local.set({ [CACHE_KEY]: translationCache });
+  } catch (err) {
+    CLOG('Cache save error:', err.message);
+  }
+}
+
+function getCachedTranslations(movieId) {
+  return translationCache[movieId] || null;
+}
+
+function updateCache(movieId, translations) {
+  if (!movieId || !translations) return;
+  if (!translationCache[movieId]) translationCache[movieId] = {};
+  Object.assign(translationCache[movieId], translations);
+  saveCache();
+}
+
+// ---------------------------------------------------------------------------
 // Message handler
 // ---------------------------------------------------------------------------
 browser.runtime.onMessage.addListener((msg) => {
@@ -178,6 +215,10 @@ browser.runtime.onMessage.addListener((msg) => {
       const apiKey = await getApiKey();
       return { ok: !!apiKey };
     })();
+  }
+
+  if (msg.type === 'getCache') {
+    return Promise.resolve({ ok: true, translations: getCachedTranslations(msg.movieId) });
   }
 
   if (msg.type === 'log') {
@@ -189,7 +230,8 @@ browser.runtime.onMessage.addListener((msg) => {
 
   return (async () => {
     try {
-      VLOG('Translate request — movieId:', msg.movieId, 'dstLang:', msg.dstLang, 'count:', msg.items?.length, 'requestId:', msg.requestId);
+      const { movieId, items, dstLang, requestId } = msg;
+      VLOG('Translate request — movieId:', movieId, 'count:', items?.length, 'requestId:', requestId);
 
       const apiKey = await getApiKey();
       if (!apiKey) {
@@ -197,28 +239,49 @@ browser.runtime.onMessage.addListener((msg) => {
         return { ok: false, error: 'No API key — open extension settings' };
       }
 
-      const items = msg.items;
       if (!Array.isArray(items) || items.length === 0) {
         return { ok: false, error: 'No items provided' };
       }
 
-      let translations;
-      try {
-        translations = await translateItems(apiKey, items, msg.dstLang);
-      } catch (err) {
-        CLOG('Translation error:', err.message);
-        return { ok: false, error: 'Translation error: ' + err.message };
+      // 1. Check cache first
+      const movieCache = translationCache[movieId] || {};
+      const results = {};
+      const pending = [];
+
+      for (const item of items) {
+        if (movieCache[item.key]) {
+          results[item.key] = movieCache[item.key];
+        } else {
+          pending.push(item);
+        }
       }
 
-      const keys = Object.keys(translations || {});
-      VLOG(`Done — returning ${keys.length} translations`);
+      // 2. Translate only what's missing
+      if (pending.length > 0) {
+        try {
+          const newTranslations = await translateItems(apiKey, pending, dstLang);
+          Object.assign(results, newTranslations);
+          // Update cache with new results
+          updateCache(movieId, newTranslations);
+        } catch (err) {
+          CLOG('Translation error:', err.message);
+          // If translation fails, we still return what we got from cache
+          if (Object.keys(results).length === 0) {
+            return { ok: false, error: 'Translation error: ' + err.message };
+          }
+        }
+      }
+
+      const keys = Object.keys(results);
+      VLOG(`Done — returning ${keys.length} translations (${items.length - pending.length} from cache)`);
+      
       return {
         ok: true,
-        translations,
+        translations: results,
         count: keys.length,
-        sample: keys.slice(0, 3).map(k => translations[k]),
-        requestId: msg.requestId,
-        movieId: msg.movieId,
+        sample: keys.slice(0, 3).map(k => results[k]),
+        requestId,
+        movieId,
       };
 
     } catch (err) {
