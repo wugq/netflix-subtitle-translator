@@ -866,12 +866,11 @@ function ensureOverlay() {
   overlayEl.id = 'nst-overlay';
   overlayEl.style.cssText = `
     position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    width: 100%;
     z-index: 2147483647;
     pointer-events: none;
     text-align: center;
-    max-width: 80vw;
   `;
   applyOverlayStyle();
   document.body.appendChild(overlayEl);
@@ -898,6 +897,7 @@ function renderSubtitle(text) {
     font-size:${subtitleFontSize}px;font-family:'Netflix Sans',Arial,sans-serif;
     font-weight:500;line-height:1.5;padding:4px 12px 6px;
     border-radius:3px;white-space:pre-wrap;
+    max-width: 90vw;
   ">${lines.join('<br>')}</div>`;
 }
 
