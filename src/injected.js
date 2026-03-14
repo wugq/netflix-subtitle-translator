@@ -57,8 +57,6 @@
           movieId: data.result.movieId,
           tracks,
         };
-        // Cache for content.js to pick up if it missed the event
-        window.__NST_LAST_MANIFEST__ = payload;
 
         window.dispatchEvent(
           new CustomEvent('nst_tracks', {
