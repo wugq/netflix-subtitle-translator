@@ -2,8 +2,30 @@
 // parses TTML locally, determines translation mode, and renders a custom overlay.
 'use strict';
 
+// Chrome compatibility polyfill (Handles Promise vs Callback mismatch)
 if (typeof browser === 'undefined') {
-  var browser = chrome;
+  var browser = new Proxy(chrome, {
+    get(target, prop) {
+      const area = target[prop];
+      if (!area || typeof area !== 'object') return area;
+      return new Proxy(area, {
+        get(target, prop) {
+          const func = target[prop];
+          if (typeof func !== 'function') return func;
+          // Don't promisify listener methods
+          if (prop === 'addListener' || prop === 'removeListener' || prop === 'hasListener') {
+            return func.bind(target);
+          }
+          return (...args) => new Promise((resolve, reject) => {
+            func.call(target, ...args, (result) => {
+              if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+              else resolve(result);
+            });
+          });
+        }
+      });
+    }
+  });
 }
 
 const APP_NAME = 'Netflix Subtitle Translator';
@@ -242,6 +264,7 @@ function langMatches(a, b) {
 // Return the human-readable label for a language code using Netflix's own
 // languageDescription from the track list, falling back to the code itself.
 function langLabel(code) {
+  if (!code) return 'Source';
   const track = availableTracks.find(t => langMatches(t.language, code));
   return track?.languageDescription || code;
 }
@@ -507,7 +530,8 @@ async function translateWindow(fromTime, toTime, signal) {
 
   CLOG(`Translating window ${fmt(fromTime)} → ${fmt(toTime)}`);
   const nowFmt = () => videoEl ? fmt(videoEl.currentTime) : fmt(fromTime);
-  setStatus('translating', `Translating… (at ${nowFmt()})`);
+  const srcLabel = langLabel(srcLang);
+  setStatus('translating', `Translating from ${srcLabel}… (at ${nowFmt()})`);
 
   const pending = SegmentStore.pendingIndices(fromTime, toTime);
 
@@ -567,7 +591,7 @@ async function translateWindow(fromTime, toTime, signal) {
     SegmentStore.applyTranslations(slice, map);
 
     completed += slice.length;
-    setStatus('translating', `Translating… (at ${nowFmt()}) ${completed}/${pending.length}`);
+    setStatus('translating', `Translating from ${srcLabel}… (at ${nowFmt()}) ${completed}/${pending.length}`);
   }
 
   if (signal.aborted) return false;
@@ -591,23 +615,30 @@ async function initialTranslation(startTime, flashMsg, signal) {
   // Prevent tick() from interjecting while this progressive chain is running
   rollingWindowEnd = windowEnd;
 
-  const msg = flashMsg || 'AI translation active — uses API tokens';
-  setStatus('ai_notice', msg);
-  if (showAiNotice) showFlashMessage(msg);
+  try {
+    const msg = flashMsg || 'AI translation active — uses AI tokens';
+    setStatus('ai_notice', msg);
+    if (showAiNotice) showFlashMessage(msg);
 
-  const stages = [startTime + 30, startTime + 120, windowEnd];
-  let prev = startTime;
-  for (const to of stages) {
-    if (signal.aborted) return;
-    const clampedTo = Math.min(to, windowEnd);
-    if (clampedTo <= prev) continue;
-    const ok = await translateWindow(prev, clampedTo, signal);
-    if (!ok) return;
-    prev = clampedTo;
-    if (prev >= windowEnd) break;
+    const stages = [startTime + 30, startTime + 120, windowEnd];
+    let prev = startTime;
+    for (const to of stages) {
+      if (signal.aborted) return;
+      const clampedTo = Math.min(to, windowEnd);
+      if (clampedTo <= prev) continue;
+      const ok = await translateWindow(prev, clampedTo, signal);
+      if (!ok) break; // Exit loop on failure
+      prev = clampedTo;
+      if (prev >= windowEnd) break;
+    }
+  } finally {
+    // If we aborted or failed before finishing the full window, 
+    // reset rollingWindowEnd so tick() can pick up where we left off.
+    if (nextWindowStart < windowEnd) {
+      rollingWindowEnd = nextWindowStart;
+    }
   }
 }
-
 function fmt(s) {
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 }
@@ -624,7 +655,7 @@ async function applyMode(tracks, mode, ttmlLang) {
 
   // Hydrate from background cache
   try {
-    const res = await browser.runtime.sendMessage({ type: 'getCache', movieId: currentMovieId });
+    const res = await browser.runtime.sendMessage({ type: 'getCache', movieId: currentMovieId, dstLang });
     if (res?.ok && res.translations) {
       const count = SegmentStore.applyTranslations(
         segments.map((_, i) => i),
@@ -654,12 +685,8 @@ function setModeStatus(mode) {
 // ---------------------------------------------------------------------------
 // 9. Listen for timedtexttracks from injected.js
 // ---------------------------------------------------------------------------
-window.addEventListener('nst_tracks', async (e) => {
-  let payload;
-  try { payload = JSON.parse(e.detail); } catch (_) { return; }
-
-  const { movieId, tracks } = payload;
-  if (!movieId) return;
+async function handleTracks(movieId, tracks) {
+  if (!movieId || !tracks) return;
   if (!isOnWatchPage()) return;
 
   // CRITICAL: Netflix often pre-fetches the manifest for the NEXT episode
@@ -708,14 +735,27 @@ window.addEventListener('nst_tracks', async (e) => {
     if (needsAiTranslation && translationEnabled) {
       const flashMsg = dstNotLoaded
         ? `"${langLabel(dstLang)}" subtitle isn't loaded by Netflix yet — using AI translation instead`
-        : 'AI translation active — uses API tokens';
+        : 'AI translation active — uses AI tokens';
       const signal = TranslationSession.start();
       initialTranslation(startTime, flashMsg, signal);
     } else {
       setModeStatus(mode);
     }
   });
+}
+
+window.addEventListener('nst_tracks', (e) => {
+  let payload;
+  try { payload = JSON.parse(e.detail); } catch (_) { return; }
+  handleTracks(payload.movieId, payload.tracks);
 });
+
+// Check if injected.js already captured a manifest before we loaded
+if (window.__NST_LAST_MANIFEST__) {
+  const { movieId, tracks } = window.__NST_LAST_MANIFEST__;
+  CLOG('Picking up cached manifest from window context', movieId);
+  handleTracks(movieId, tracks);
+}
 
 // ---------------------------------------------------------------------------
 // 10. Listen for source language detection from injected.js
@@ -728,6 +768,12 @@ window.addEventListener('nst_src_lang', (e) => {
   if (!isOnWatchPage()) return;
   CLOG(`Src lang detected: ${srcLang} → ${lang}`);
   srcLang = lang;
+  
+  // If we're done translating, update status with the newly detected language
+  if (lastStatus.state === 'done') {
+    setStatus('done', `Using ${langLabel(srcLang)} as source`);
+  }
+  
   onLanguageChanged('srcLang');
 });
 
@@ -904,8 +950,9 @@ function startSync() {
   };
   playHandler = () => {
     if (!isOnWatchPage()) return;
-    nextWindowStart = videoEl.currentTime;
-    EventBus.emit('playback:play', { time: videoEl.currentTime });
+    const t = videoEl.currentTime;
+    nextWindowStart = t;
+    EventBus.emit('playback:play', { time: t });
   };
   pauseHandler = () => {
     if (!isOnWatchPage()) return;

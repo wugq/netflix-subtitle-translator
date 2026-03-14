@@ -1,8 +1,30 @@
 // background.js — handles translation requests from content script
 'use strict';
 
+// Chrome compatibility polyfill (Handles Promise vs Callback mismatch)
 if (typeof browser === 'undefined') {
-  var browser = chrome;
+  var browser = new Proxy(chrome, {
+    get(target, prop) {
+      const area = target[prop];
+      if (!area || typeof area !== 'object') return area;
+      return new Proxy(area, {
+        get(target, prop) {
+          const func = target[prop];
+          if (typeof func !== 'function') return func;
+          // Don't promisify listener methods
+          if (prop === 'addListener' || prop === 'removeListener' || prop === 'hasListener') {
+            return func.bind(target);
+          }
+          return (...args) => new Promise((resolve, reject) => {
+            func.call(target, ...args, (result) => {
+              if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+              else resolve(result);
+            });
+          });
+        }
+      });
+    }
+  });
 }
 
 const APP_NAME = 'Netflix Subtitle Translator';
@@ -58,6 +80,7 @@ async function getApiKey() {
 // Language name lookup (for the AI system prompt)
 // ---------------------------------------------------------------------------
 const LANG_NAMES = {
+  'en':      'English',
   'zh-hans': 'Simplified Chinese',
   'zh-hant': 'Traditional Chinese',
   'ja':      'Japanese',
@@ -177,7 +200,7 @@ async function translateItems(apiKey, items, dstLang) {
 // Translation Cache (Persistent)
 // ---------------------------------------------------------------------------
 const CACHE_KEY = 'nstTranslationCache';
-let translationCache = {}; // movieId -> { key: text }
+let translationCache = {}; // movieId -> { dstLang: { key: text } }
 
 // Load cache from storage on startup
 browser.storage.local.get(CACHE_KEY).then(r => {
@@ -199,14 +222,16 @@ async function saveCache() {
   }
 }
 
-function getCachedTranslations(movieId) {
-  return translationCache[movieId] || null;
+function getCachedTranslations(movieId, dstLang) {
+  if (!translationCache[movieId]) return null;
+  return translationCache[movieId][dstLang] || null;
 }
 
-function updateCache(movieId, translations) {
-  if (!movieId || !translations) return;
+function updateCache(movieId, dstLang, translations) {
+  if (!movieId || !dstLang || !translations) return;
   if (!translationCache[movieId]) translationCache[movieId] = {};
-  Object.assign(translationCache[movieId], translations);
+  if (!translationCache[movieId][dstLang]) translationCache[movieId][dstLang] = {};
+  Object.assign(translationCache[movieId][dstLang], translations);
   saveCache();
 }
 
@@ -222,7 +247,7 @@ browser.runtime.onMessage.addListener((msg) => {
   }
 
   if (msg.type === 'getCache') {
-    return Promise.resolve({ ok: true, translations: getCachedTranslations(msg.movieId) });
+    return Promise.resolve({ ok: true, translations: getCachedTranslations(msg.movieId, msg.dstLang) });
   }
 
   if (msg.type === 'log') {
@@ -235,7 +260,7 @@ browser.runtime.onMessage.addListener((msg) => {
   return (async () => {
     try {
       const { movieId, items, dstLang, requestId } = msg;
-      VLOG('Translate request — movieId:', movieId, 'count:', items?.length, 'requestId:', requestId);
+      VLOG('Translate request — movieId:', movieId, 'dstLang:', dstLang, 'count:', items?.length, 'requestId:', requestId);
 
       const apiKey = await getApiKey();
       if (!apiKey) {
@@ -247,14 +272,14 @@ browser.runtime.onMessage.addListener((msg) => {
         return { ok: false, error: 'No items provided' };
       }
 
-      // 1. Check cache first
-      const movieCache = translationCache[movieId] || {};
+      // 1. Check cache first for this specific language
+      const langCache = (translationCache[movieId] && translationCache[movieId][dstLang]) || {};
       const results = {};
       const pending = [];
 
       for (const item of items) {
-        if (movieCache[item.key]) {
-          results[item.key] = movieCache[item.key];
+        if (langCache[item.key]) {
+          results[item.key] = langCache[item.key];
         } else {
           pending.push(item);
         }
@@ -266,7 +291,7 @@ browser.runtime.onMessage.addListener((msg) => {
           const newTranslations = await translateItems(apiKey, pending, dstLang);
           Object.assign(results, newTranslations);
           // Update cache with new results
-          updateCache(movieId, newTranslations);
+          updateCache(movieId, dstLang, newTranslations);
         } catch (err) {
           CLOG('Translation error:', err.message);
           // If translation fails, we still return what we got from cache

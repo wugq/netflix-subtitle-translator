@@ -53,12 +53,16 @@
         for (const key of Object.keys(urlToLang)) delete urlToLang[key];
         for (const track of tracks) extractUrls(track);
 
+        const payload = {
+          movieId: data.result.movieId,
+          tracks,
+        };
+        // Cache for content.js to pick up if it missed the event
+        window.__NST_LAST_MANIFEST__ = payload;
+
         window.dispatchEvent(
           new CustomEvent('nst_tracks', {
-            detail: JSON.stringify({
-              movieId: data.result.movieId,
-              tracks,
-            }),
+            detail: JSON.stringify(payload),
           })
         );
       }
