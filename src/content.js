@@ -886,19 +886,18 @@ function ensureOverlay() {
 
 function renderSubtitle(text) {
   if (!overlayEl) return;
-  if (!text) { overlayEl.innerHTML = ''; return; }
-  const lines = text.split('\n').map(l => {
-    const s = document.createElement('span');
-    s.textContent = l;
-    return s.outerHTML;
+  overlayEl.textContent = '';
+  if (!text) return;
+  const div = document.createElement('div');
+  div.style.cssText = `display:inline-block;background:rgba(0,0,0,0.75);color:#fff;` +
+    `font-size:${subtitleFontSize}px;font-family:'Netflix Sans',Arial,sans-serif;` +
+    `font-weight:500;line-height:1.5;padding:4px 12px 6px;` +
+    `border-radius:3px;white-space:pre-wrap;max-width:90vw;`;
+  text.split('\n').forEach((line, i) => {
+    if (i > 0) div.appendChild(document.createElement('br'));
+    div.appendChild(document.createTextNode(line));
   });
-  overlayEl.innerHTML = `<div style="
-    display:inline-block;background:rgba(0,0,0,0.75);color:#fff;
-    font-size:${subtitleFontSize}px;font-family:'Netflix Sans',Arial,sans-serif;
-    font-weight:500;line-height:1.5;padding:4px 12px 6px;
-    border-radius:3px;white-space:pre-wrap;
-    max-width: 90vw;
-  ">${lines.join('<br>')}</div>`;
+  overlayEl.appendChild(div);
 }
 
 // Return all segments overlapping current time (to support overlapping text)

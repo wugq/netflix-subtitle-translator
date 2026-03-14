@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "Netflix Subtitle Translator",
   "version": "1.0",
-  "description": "Automatically translates Netflix English subtitles to Simplified Chinese using OpenAI GPT.",
+  "description": "Translates Netflix subtitles to your preferred language using OpenAI GPT. Supports 18 languages including Chinese, Japanese, Korean, Spanish, French, German, and more.",
   "permissions": [
     "storage",
     "*://www.netflix.com/*",
@@ -15,13 +15,15 @@
     "default_title": "Netflix Subtitle Translator",
     "default_popup": "popup/popup.html",
     "default_icon": {
-      "48": "icons/icon.svg",
-      "96": "icons/icon.svg"
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
     }
   },
   "icons": {
-    "48": "icons/icon.svg",
-    "96": "icons/icon.svg"
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "web_accessible_resources": ["src/injected.js"],
   "background": {
@@ -42,7 +44,14 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "netflix-subtitle-translator@extension",
-      "strict_min_version": "57.0"
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["websiteContent"],
+        "optional": []
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
     }
   }
 }
