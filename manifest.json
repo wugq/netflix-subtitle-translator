@@ -3,6 +3,7 @@
   "name": "Netflix Subtitle Translator",
   "version": "1.0",
   "description": "Translates Netflix subtitles to your preferred language using OpenAI GPT. Supports 18 languages including Chinese, Japanese, Korean, Spanish, French, German, and more.",
+  "author": "wugq.dev",
   "permissions": [
     "storage",
     "*://www.netflix.com/*",
