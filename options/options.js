@@ -1,6 +1,10 @@
 // options.js
 'use strict';
 
+if (typeof browser === 'undefined') {
+  var browser = chrome;
+}
+
 const apiKeyInput = document.getElementById('apiKey');
 const saveBtn = document.getElementById('saveBtn');
 const testBtn = document.getElementById('testBtn');

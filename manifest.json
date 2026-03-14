@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "*://www.netflix.com/*",
-    "*://*.nflxvideo.net/*"
+    "*://*.nflxvideo.net/*",
+    "https://api.openai.com/*"
   ],
   "browser_action": {
     "default_title": "Netflix Subtitle Translator",

@@ -1,6 +1,10 @@
 // popup.js
 'use strict';
 
+if (typeof browser === 'undefined') {
+  var browser = chrome;
+}
+
 const statusBadge = document.getElementById('statusBadge');
 const openOptionsBtn = document.getElementById('openOptions');
 

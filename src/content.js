@@ -2,6 +2,10 @@
 // parses TTML locally, determines translation mode, and renders a custom overlay.
 'use strict';
 
+if (typeof browser === 'undefined') {
+  var browser = chrome;
+}
+
 const APP_NAME = 'Netflix Subtitle Translator';
 let consoleLogging = false;  // minimal key events → browser console
 let verboseLogging = false;  // detailed trace → options page log buffer
@@ -106,6 +110,9 @@ EventBus.on('lang:changed', ({ reason }) => {
     TranslationSession.cancel();
     const ok = await applyMode(availableTracks, mode, ttmlLang);
     if (!ok) return;
+
+    ensureOverlay();
+    
     // No recheck needed — if another lang:changed arrived during applyMode(),
     // SerialQueue already has it pending and drain() will run it next.
     const t = videoEl?.currentTime ?? 0;
@@ -454,7 +461,6 @@ function resetStateForNewVideo() {
   }
   seekedHandler = playHandler = pauseHandler = null;
   videoEl = null;
-  if (overlayEl) overlayEl.innerHTML = '';
 }
 
 // ---------------------------------------------------------------------------

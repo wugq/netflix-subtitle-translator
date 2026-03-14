@@ -1,6 +1,10 @@
 // background.js — handles translation requests from content script
 'use strict';
 
+if (typeof browser === 'undefined') {
+  var browser = chrome;
+}
+
 const APP_NAME = 'Netflix Subtitle Translator';
 let consoleLogging = false;  // minimal key events → browser console
 let verboseLogging = false;  // detailed trace → options page log buffer
