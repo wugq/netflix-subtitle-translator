@@ -1,20 +1,18 @@
 // content.js — injects page-context script, receives subtitle URLs, fetches,
-// parses TTML locally, translates a rolling time window progressively.
+// parses TTML locally, determines translation mode, and renders a custom overlay.
 'use strict';
 
 const LOG = (...a) => console.log('[SubtitleTranslator]', ...a);
 const TTML_NS = 'http://www.w3.org/ns/ttml';
 
-// How many seconds before window end to start translating the next window
 const LOOKAHEAD_SECONDS = 60;
-// Segments per OpenAI request
-const BATCH_SIZE = 50;
+const BATCH_SIZE        = 50;
 
 // ---------------------------------------------------------------------------
 // 1. Inject injected.js into page context
 // ---------------------------------------------------------------------------
 const script = document.createElement('script');
-script.src = browser.runtime.getURL('injected.js');
+script.src = browser.runtime.getURL('src/injected.js');
 script.onload = () => script.remove();
 (document.head || document.documentElement).prepend(script);
 
@@ -22,29 +20,43 @@ script.onload = () => script.remove();
 // 2. State
 // ---------------------------------------------------------------------------
 let currentMovieId      = null;
-let isSettingUp         = false;  // guard against duplicate nst_tracks processing
-let isWindowTranslating = false;  // guard against concurrent window translations
-let translationGen      = 0;      // increment on seek to cancel in-flight translations
-let nextWindowStart     = 0;      // seconds — start of next untranslated window
-let windowMinutes       = 5;      // configurable via popup
-let originalSegments    = [];     // [{begin, end, text}] — always the original English
-let overlaySegments     = [];     // [{begin, end, text}] — may be English or Chinese
-let translated          = [];     // boolean[] parallel to overlaySegments
+let isSettingUp         = false;
+let isWindowTranslating = false;
+let translationGen      = 0;
+let nextWindowStart     = 0;
+let windowMinutes       = 5;
+let originalSegments    = [];   // source-language segments (used when AI disabled)
+let overlaySegments     = [];   // displayed segments (translated or native/passthrough)
+let translated          = [];   // boolean[] — which overlaySegments have been AI-translated
 let overlayEl           = null;
 let rafId               = null;
 let videoEl             = null;
-let seekedHandler       = null;  // tracked so we can remove it before re-adding
+let seekedHandler       = null;
 
-let subtitleFontSize    = 24;
-let subtitleBottom      = 8;
-let translationEnabled  = true;
+// Language state
+let srcLang            = 'en';       // detected from Netflix player (fetch interception)
+let dstLang            = 'zh-Hans';  // user's chosen destination language
+let availableTracks    = [];         // all tracks from the manifest
+let currentMode        = null;       // 'passthrough' | 'native' | 'ai'
+let currentTtmlLang    = null;       // which language's TTML is currently loaded
+let needsAiTranslation = false;      // false for passthrough / native modes
+
+// Display settings
+let subtitleFontSize   = 24;
+let subtitleBottom     = 8;
+let translationEnabled = true;
+let showAiNotice       = true;
 
 // Load persisted settings
-browser.storage.local.get(['subtitleFontSize', 'subtitleBottom', 'windowMinutes', 'translationEnabled']).then(r => {
+browser.storage.local.get([
+  'subtitleFontSize', 'subtitleBottom', 'windowMinutes', 'translationEnabled', 'dstLang', 'showAiNotice',
+]).then(r => {
   if (r.subtitleFontSize   != null) subtitleFontSize   = r.subtitleFontSize;
   if (r.subtitleBottom     != null) subtitleBottom     = r.subtitleBottom;
   if (r.windowMinutes      != null) windowMinutes      = r.windowMinutes;
   if (r.translationEnabled != null) translationEnabled = r.translationEnabled;
+  if (r.dstLang            != null) dstLang            = r.dstLang;
+  if (r.showAiNotice       != null) showAiNotice       = r.showAiNotice;
   applyOverlayStyle();
 });
 
@@ -57,11 +69,86 @@ browser.storage.onChanged.addListener((changes, area) => {
     translationEnabled = changes.translationEnabled.newValue;
     applyTranslationEnabled();
   }
+  if ('dstLang' in changes) {
+    dstLang = changes.dstLang.newValue;
+    onLanguageChanged('dstLang');
+  }
+  if ('showAiNotice' in changes) showAiNotice = changes.showAiNotice.newValue;
   applyOverlayStyle();
 });
 
 // ---------------------------------------------------------------------------
-// 3. TTML parsing
+// 3. Language utilities
+// ---------------------------------------------------------------------------
+
+// Loose BCP-47 match: 'en' matches 'en-US', 'zh-Hans' matches 'zh-Hans-SG'
+// Netflix always uses standard BCP-47 codes in track.language.
+function langMatches(a, b) {
+  if (!a || !b) return false;
+  const la = a.toLowerCase(), lb = b.toLowerCase();
+  return la === lb || la.startsWith(lb + '-') || lb.startsWith(la + '-');
+}
+
+// Return the human-readable label for a language code using Netflix's own
+// languageDescription from the track list, falling back to the code itself.
+function langLabel(code) {
+  const track = availableTracks.find(t => langMatches(t.language, code));
+  return track?.languageDescription || code;
+}
+
+// Find TTML URL for a given language code from the track list.
+// Tries formats in priority order.
+function findTtmlUrl(tracks, langCode) {
+  const FORMATS = ['imsc1.1', 'dfxp-ls-sdh', 'simplesdh', 'nflx-cmisc', 'dfxp'];
+  const candidates = tracks.filter(t => langMatches(t.language, langCode));
+  if (!candidates.length) return null;
+
+  function firstHttps(obj) {
+    if (typeof obj === 'string' && obj.startsWith('https://')) return obj;
+    if (obj && typeof obj === 'object') {
+      for (const v of Object.values(obj)) {
+        const found = firstHttps(v);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  for (const track of candidates) {
+    const dl = track.ttDownloadables;
+    if (!dl) continue;
+    for (const fmt of FORMATS) {
+      const entry = dl[fmt];
+      if (!entry) continue;
+      const url = firstHttps(entry.downloadUrls || entry.urls || entry);
+      if (url) return url;
+    }
+  }
+  return null;
+}
+
+// Determine translation mode from current srcLang / dstLang / availableTracks.
+//   passthrough — src == dst, show source TTML directly, no AI
+//   native      — dst has a downloadable TTML in Netflix, use it directly, no AI
+//   ai          — use AI; prefer English as input, fall back to srcLang
+// Note: a track may exist in the manifest but have no downloadable TTML URL
+// (Netflix lists it as an option but serves no file). We check for an actual
+// URL to avoid entering native mode and then failing silently.
+function determineMode() {
+  if (langMatches(srcLang, dstLang)) {
+    return { mode: 'passthrough', ttmlLang: srcLang };
+  }
+  if (findTtmlUrl(availableTracks, dstLang)) {
+    return { mode: 'native', ttmlLang: dstLang };
+  }
+  // Track exists in Netflix's list but subtitle file isn't loaded yet
+  const dstListed = availableTracks.some(t => langMatches(t.language, dstLang));
+  const ttmlLang  = findTtmlUrl(availableTracks, 'en') ? 'en' : srcLang;
+  return { mode: 'ai', ttmlLang, dstNotLoaded: dstListed };
+}
+
+// ---------------------------------------------------------------------------
+// 4. TTML parsing
 // ---------------------------------------------------------------------------
 function parseTtmlTime(t, tickRate) {
   if (!t) return 0;
@@ -95,11 +182,8 @@ function parseTtml(xmlString) {
   const tickRate = parseInt(
     tt?.getAttributeNS('http://www.w3.org/ns/ttml#parameter', 'tickRate') || '10000000', 10
   );
-  LOG(`tickRate: ${tickRate}`);
 
   const ps = doc.getElementsByTagNameNS(TTML_NS, 'p');
-  LOG(`TTML parsed — ${ps.length} <p> elements found`);
-
   const segments = [];
   for (const p of ps) {
     const text = nodeToText(p).trim();
@@ -115,50 +199,36 @@ function parseTtml(xmlString) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Find English TTML URL
+// 5. Fetch and parse TTML for a given language, return segments or null
 // ---------------------------------------------------------------------------
-function findEnglishTtmlUrl(tracks) {
-  const TTML_FORMATS = ['imsc1.1', 'dfxp-ls-sdh', 'simplesdh', 'nflx-cmisc', 'dfxp'];
-
-  const candidates = tracks.filter(
-    t =>
-      t.language === 'en' ||
-      t.language === 'en-US' ||
-      (t.languageDescription || '').toLowerCase().includes('english')
-  );
-  if (candidates.length === 0) return null;
-
-  function firstUrl(obj) {
-    if (typeof obj === 'string' && obj.startsWith('https://')) return obj;
-    if (obj && typeof obj === 'object') {
-      for (const v of Object.values(obj)) {
-        const found = firstUrl(v);
-        if (found) return found;
-      }
-    }
+async function fetchSegments(tracks, langCode) {
+  const url = findTtmlUrl(tracks, langCode);
+  if (!url) {
+    setStatus('error', `No subtitle track for "${langCode}"`);
     return null;
   }
-
-  for (const track of candidates) {
-    const dl = track.ttDownloadables;
-    if (!dl) continue;
-    LOG('ttDownloadables keys for', track.language, ':', Object.keys(dl));
-    for (const fmt of TTML_FORMATS) {
-      const entry = dl[fmt];
-      if (!entry) continue;
-      const url = firstUrl(entry.downloadUrls || entry.urls || entry);
-      if (url) { LOG('Subtitle URL:', fmt, url); return url; }
-    }
+  let xml;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    xml = await res.text();
+  } catch (err) {
+    setStatus('error', 'Fetch failed: ' + err.message);
+    return null;
   }
-  return null;
+  try {
+    const segs = parseTtml(xml);
+    if (!segs.length) { setStatus('error', 'No subtitle segments found'); return null; }
+    return segs;
+  } catch (err) {
+    setStatus('error', 'TTML parse failed: ' + err.message);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
-// 5. Window-based translation
+// 6. Window-based AI translation
 // ---------------------------------------------------------------------------
-
-// Translate segments in [fromTime, toTime) for a specific generation.
-// Returns true if completed normally, false if cancelled by a newer seek.
 async function translateWindow(fromTime, toTime, gen) {
   if (isWindowTranslating) return false;
   isWindowTranslating = true;
@@ -183,19 +253,14 @@ async function translateWindow(fromTime, toTime, gen) {
   }
 
   if (pending.length === 0) {
-    LOG(`No untranslated segments in window, advancing`);
     nextWindowStart = toTime;
     isWindowTranslating = false;
     return true;
   }
 
-  LOG(`${pending.length} segments to translate`);
   let completed = 0;
-
   for (let b = 0; b < pending.length; b += BATCH_SIZE) {
-    // Check if a seek has made this translation stale
     if (gen !== translationGen) {
-      LOG(`Window cancelled (gen ${gen} → ${translationGen})`);
       isWindowTranslating = false;
       return false;
     }
@@ -205,22 +270,22 @@ async function translateWindow(fromTime, toTime, gen) {
 
     let response;
     try {
-      response = await browser.runtime.sendMessage({ type: 'translate', texts, movieId: currentMovieId });
+      response = await browser.runtime.sendMessage({
+        type: 'translate', texts, dstLang, movieId: currentMovieId,
+      });
     } catch (err) {
-      LOG(`Batch sendMessage failed:`, err);
       setStatus('error', 'Background error: ' + err.message);
       isWindowTranslating = false;
       return false;
     }
 
     if (!response || !response.ok) {
-      LOG(`Batch failed:`, response?.error);
       if (response?.error?.includes('No API key')) {
         setStatus('error', 'No API key — open extension settings');
         isWindowTranslating = false;
         return false;
       }
-      continue; // non-fatal — leave as English
+      continue; // non-fatal — leave segment as source text
     }
 
     response.translations.forEach((text, j) => {
@@ -233,162 +298,225 @@ async function translateWindow(fromTime, toTime, gen) {
     setStatus('translating', `${fmt(fromTime)}–${fmt(toTime)}: ${completed}/${pending.length}`);
   }
 
-  LOG(`Window done — ${completed}/${pending.length} translated`);
   nextWindowStart = toTime;
   isWindowTranslating = false;
   setStatus('done', `Translated up to ${fmt(toTime)}`);
   return true;
 }
 
-// Progressive initial load: 30s → 2 min → full window.
-// Each stage awaits the previous so subtitles appear almost immediately.
-// Exits early if cancelled by a newer seek.
-async function initialTranslation(startTime) {
+// Progressive 3-stage translation: 30s → 2min → full window.
+// flashMsg: optional on-screen message to show when AI starts (respects showAiNotice setting).
+async function initialTranslation(startTime, flashMsg) {
   const gen = ++translationGen;
-  isWindowTranslating = false; // unlock so this call can enter translateWindow
+  isWindowTranslating = false;
   const windowEnd = startTime + windowMinutes * 60;
 
-  const stages = [
-    startTime + 30,   // Stage 1: first 30s — subtitles appear fast
-    startTime + 120,  // Stage 2: up to 2 min — fill in more
-    windowEnd,        // Stage 3: full configured window
-  ];
+  const msg = flashMsg || 'AI translation active — uses API tokens';
+  setStatus('ai_notice', msg);
+  if (showAiNotice) showFlashMessage(msg);
 
+  const stages = [startTime + 30, startTime + 120, windowEnd];
   let prev = startTime;
   for (const to of stages) {
     const clampedTo = Math.min(to, windowEnd);
     if (clampedTo <= prev) continue;
     const ok = await translateWindow(prev, clampedTo, gen);
-    if (!ok) return; // cancelled by a newer seek
+    if (!ok) return;
     prev = clampedTo;
     if (prev >= windowEnd) break;
   }
 }
 
-function fmt(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+function fmt(s) {
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 }
 
 // ---------------------------------------------------------------------------
-// 6. Listen for timedtexttracks from injected.js
+// 7. Apply a new mode: fetch the right TTML and reset segment state
+// ---------------------------------------------------------------------------
+async function applyMode(tracks, mode, ttmlLang) {
+  LOG(`Applying mode=${mode} ttmlLang=${ttmlLang}`);
+  const segments = await fetchSegments(tracks, ttmlLang);
+  if (!segments) return false;
+
+  originalSegments   = segments.map(s => ({ ...s }));
+  overlaySegments    = segments.map(s => ({ ...s }));
+  translated         = new Array(segments.length).fill(false);
+  needsAiTranslation = (mode === 'ai');
+  currentMode        = mode;
+  currentTtmlLang    = ttmlLang;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// 8. Listen for timedtexttracks from injected.js
 // ---------------------------------------------------------------------------
 window.addEventListener('nst_tracks', async (e) => {
   let payload;
   try { payload = JSON.parse(e.detail); } catch (_) { return; }
 
   const { movieId, tracks } = payload;
-  if (!movieId || movieId === currentMovieId || isSettingUp) return;
-  currentMovieId = movieId;
-  isSettingUp = true;
+  if (!movieId) return;
 
-  LOG('Tracks received for movieId', movieId);
+  // Same movie: tracks may have been hydrated (e.g. user selected a subtitle
+  // in Netflix's player, which populates ttDownloadables for that track).
+  // Re-evaluate mode — if we now have a native URL we didn't have before, switch.
+  if (movieId === currentMovieId) {
+    if (isSettingUp) return;
+    availableTracks = tracks;
+    const { mode, ttmlLang } = determineMode();
+    if (mode !== currentMode || ttmlLang !== currentTtmlLang) {
+      LOG(`Tracks hydrated — mode changed: ${currentMode} → ${mode}`);
+      onLanguageChanged('hydration');
+    }
+    return;
+  }
+
+  currentMovieId  = movieId;
+  isSettingUp     = true;
+  availableTracks = tracks;
+
+  LOG('Tracks received for movieId', movieId, '— available langs:', tracks.map(t => t.language));
   setStatus('detected', `Found ${tracks.length} subtitle tracks`);
 
-  const url = findEnglishTtmlUrl(tracks);
-  if (!url) {
-    LOG('No English TTML URL. Languages:', tracks.map(t => t.language));
-    setStatus('error', 'No English TTML track found');
-    isSettingUp = false;
-    return;
-  }
-
-  let xml;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    xml = await res.text();
-    LOG(`Fetched XML: ${xml.length} chars`);
-  } catch (err) {
-    LOG('Fetch failed:', err);
-    setStatus('error', 'Fetch failed: ' + err.message);
-    isSettingUp = false;
-    return;
-  }
-
-  let segments;
-  try {
-    segments = parseTtml(xml);
-    LOG(`Parsed ${segments.length} segments`);
-  } catch (err) {
-    LOG('TTML parse failed:', err);
-    setStatus('error', 'TTML parse failed: ' + err.message);
-    isSettingUp = false;
-    return;
-  }
-
-  if (segments.length === 0) {
-    setStatus('error', 'No subtitle segments found');
-    isSettingUp = false;
-    return;
-  }
-
-  // Set up state — all segments start as English
-  originalSegments = segments.map(s => ({ ...s }));
-  overlaySegments  = segments.map(s => ({ ...s }));
-  translated       = new Array(segments.length).fill(false);
+  const { mode, ttmlLang, dstNotLoaded } = determineMode();
+  const ok = await applyMode(tracks, mode, ttmlLang);
+  if (!ok) { isSettingUp = false; return; }
 
   ensureOverlay();
-
   isSettingUp = false;
   startSync();
 
-  // Poll until video.currentTime > 1s so we catch Netflix's resume seek.
-  // Only then do we know the actual starting position.
-  // Capture movieId so a stale promise from a previous title is a no-op.
   const capturedMovieId = movieId;
   waitForPlaybackStart().then(startTime => {
-    if (currentMovieId !== capturedMovieId) return; // navigated away
-    videoEl = document.querySelector('video'); // refresh in case it wasn't ready
-    LOG(`Starting translation from ${fmt(startTime)}`);
+    if (currentMovieId !== capturedMovieId) return;
+    videoEl = document.querySelector('video');
     nextWindowStart = startTime;
-    if (translationEnabled) initialTranslation(startTime);
+
+    if (needsAiTranslation && translationEnabled) {
+      const flashMsg = dstNotLoaded
+        ? `"${langLabel(dstLang)}" subtitle isn't loaded by Netflix yet — using AI translation instead`
+        : 'AI translation active — uses API tokens';
+      initialTranslation(startTime, flashMsg);
+    } else {
+      const label = mode === 'native'
+        ? 'Using Netflix native subtitles'
+        : mode === 'passthrough'
+          ? 'Source and destination are the same language'
+          : 'Translation paused';
+      setStatus('done', label);
+    }
   });
 });
 
 // ---------------------------------------------------------------------------
-// 7. Playback start detection
+// 9. Listen for source language detection from injected.js
 // ---------------------------------------------------------------------------
+window.addEventListener('nst_src_lang', (e) => {
+  let payload;
+  try { payload = JSON.parse(e.detail); } catch (_) { return; }
+  const { lang } = payload;
+  if (!lang || lang === srcLang) return;
+  LOG(`Src lang detected: ${srcLang} → ${lang}`);
+  srcLang = lang;
+  onLanguageChanged('srcLang');
+});
 
-// Polls until video.currentTime settles at a non-trivial value (> 1s),
-// meaning Netflix has finished seeking to the resume position.
-// Falls back after 5s so we never hang forever.
+// Re-evaluate and reload subtitles when src or dst language changes
+function onLanguageChanged(which) {
+  if (!availableTracks.length || !currentMovieId || isSettingUp) return;
+  LOG(`Language changed (${which}), re-evaluating mode`);
+
+  translationGen++;
+  isWindowTranslating = false;
+  isSettingUp = true;
+
+  const { mode, ttmlLang, dstNotLoaded } = determineMode();
+  applyMode(availableTracks, mode, ttmlLang).then(ok => {
+    isSettingUp = false;
+    if (!ok) return;
+
+    const t = videoEl ? videoEl.currentTime : 0;
+    nextWindowStart = t;
+
+    if (needsAiTranslation && translationEnabled) {
+      const flashMsg = dstNotLoaded
+        ? `"${langLabel(dstLang)}" subtitle isn't loaded by Netflix yet — using AI translation instead`
+        : 'AI translation active — uses API tokens';
+      initialTranslation(t, flashMsg);
+    } else {
+      const label = mode === 'native'
+        ? 'Using Netflix native subtitles'
+        : mode === 'passthrough'
+          ? 'Source and destination are the same language'
+          : 'Translation paused';
+      setStatus('done', label);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 10. Playback start detection
+// ---------------------------------------------------------------------------
 function waitForPlaybackStart() {
   return new Promise(resolve => {
-    const MAX_MS   = 5000;
-    const INTERVAL = 150;
-    const began    = Date.now();
-
+    const MAX_MS = 5000, INTERVAL = 150, began = Date.now();
     function check() {
       const video = document.querySelector('video');
-      if (video && video.currentTime > 1) {
-        LOG(`Playback position settled at ${fmt(video.currentTime)}`);
-        resolve(video.currentTime);
-        return;
-      }
-      if (Date.now() - began >= MAX_MS) {
-        const t = video ? video.currentTime : 0;
-        LOG(`Playback start timeout, using ${fmt(t)}`);
-        resolve(t);
-        return;
-      }
+      if (video && video.currentTime > 1) { resolve(video.currentTime); return; }
+      if (Date.now() - began >= MAX_MS) { resolve(video ? video.currentTime : 0); return; }
       setTimeout(check, INTERVAL);
     }
-
     check();
   });
 }
 
 // ---------------------------------------------------------------------------
-// 8. Overlay
+// 11. On-screen flash message
+// ---------------------------------------------------------------------------
+let flashTimeout = null;
+
+function showFlashMessage(msg) {
+  let el = document.getElementById('nst-flash');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'nst-flash';
+    el.style.cssText = `
+      position: fixed;
+      top: 10%;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2147483647;
+      background: rgba(0,0,0,0.82);
+      color: #ffcc80;
+      font-family: 'Netflix Sans', Arial, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 18px;
+      border-radius: 6px;
+      pointer-events: none;
+      text-align: center;
+      max-width: 70vw;
+      transition: opacity 0.4s;
+    `;
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+
+  clearTimeout(flashTimeout);
+  flashTimeout = setTimeout(() => {
+    el.style.opacity = '0';
+  }, 4000);
+}
+
+// ---------------------------------------------------------------------------
+// 12. Overlay
 // ---------------------------------------------------------------------------
 function applyTranslationEnabled() {
-  if (translationEnabled) {
-    // Restart translation from current position; reuses already-translated segments
+  if (translationEnabled && needsAiTranslation) {
     if (videoEl) initialTranslation(videoEl.currentTime);
   } else {
-    // Cancel any in-flight translation — tick loop will render originalSegments
     translationGen++;
     isWindowTranslating = false;
   }
@@ -429,7 +557,10 @@ function ensureOverlay() {
 
   document.addEventListener('fullscreenchange', () => {
     const fs = document.fullscreenElement;
-    (fs || document.body).appendChild(overlayEl);
+    const target = fs || document.body;
+    target.appendChild(overlayEl);
+    const flash = document.getElementById('nst-flash');
+    if (flash) target.appendChild(flash);
   });
 }
 
@@ -465,15 +596,14 @@ function startSync() {
   if (!videoEl) { setTimeout(startSync, 1000); return; }
   if (rafId) cancelAnimationFrame(rafId);
 
-  // Remove any seeked listener from a previous movie before adding a new one
   if (seekedHandler) videoEl.removeEventListener('seeked', seekedHandler);
   seekedHandler = () => {
     const t = videoEl.currentTime;
-    translationGen++;          // invalidates any in-flight translateWindow
-    isWindowTranslating = false; // unlock immediately so initialTranslation can enter
+    translationGen++;
+    isWindowTranslating = false;
     nextWindowStart = t;
-    if (translationEnabled) {
-      LOG(`Seeked to ${fmt(t)}, restarting translation (gen ${translationGen})`);
+    if (needsAiTranslation && translationEnabled) {
+      LOG(`Seeked to ${fmt(t)}, restarting translation`);
       initialTranslation(t);
     }
   };
@@ -485,13 +615,15 @@ function startSync() {
     rafId = requestAnimationFrame(tick);
     const t = videoEl.currentTime;
 
-    // Trigger next rolling window when LOOKAHEAD_SECONDS before current window ends
-    if (!isWindowTranslating && translationEnabled && t >= nextWindowStart - LOOKAHEAD_SECONDS) {
+    // Lookahead: trigger next rolling window before the current one is exhausted
+    if (needsAiTranslation && !isWindowTranslating && translationEnabled &&
+        t >= nextWindowStart - LOOKAHEAD_SECONDS) {
       translateWindow(nextWindowStart, nextWindowStart + windowMinutes * 60, translationGen);
     }
 
-    const segs = translationEnabled ? overlaySegments : originalSegments;
-    const seg = findSegment(t, segs);
+    // When AI is disabled, fall back to original (source-language) segments
+    const segs = (needsAiTranslation && !translationEnabled) ? originalSegments : overlaySegments;
+    const seg  = findSegment(t, segs);
     const text = seg ? seg.text : '';
     if (text !== lastText) { lastText = text; renderSubtitle(text); }
   }
@@ -501,7 +633,7 @@ function startSync() {
 }
 
 // ---------------------------------------------------------------------------
-// 9. Status
+// 13. Status
 // ---------------------------------------------------------------------------
 function setStatus(state, message) {
   browser.storage.local.set({ translationStatus: { state, message, ts: Date.now() } });

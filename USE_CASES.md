@@ -28,6 +28,7 @@ This document defines the intended behavior of the extension. Both developers an
 - If the destination language is natively available in Netflix's player, do not use AI translation — use Netflix's own subtitle for that language and display it in our container. The user's source language selection is preserved.
 - The user can enable or disable translation at any time. When disabled, the source language text (from Netflix) is shown in our container without translation.
 - If no API key is configured, no AI requests are sent. The popup status area must reflect this state.
+- When AI translation starts, a brief on-screen message is shown on the video (not just in the popup) to inform the user that API tokens are being used. If the destination language is listed by Netflix but its subtitle file hasn't been loaded yet (because the user hasn't selected it in Netflix's player), the message must explain this specifically. The user can disable this on-screen notice via a checkbox in the popup.
 
 ---
 

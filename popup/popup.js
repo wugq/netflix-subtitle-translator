@@ -45,6 +45,32 @@ openOptionsBtn.addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Destination language selector
+// ---------------------------------------------------------------------------
+const dstLangSelect = document.getElementById('dstLang');
+
+browser.storage.local.get('dstLang').then(r => {
+  if (r.dstLang) dstLangSelect.value = r.dstLang;
+});
+
+dstLangSelect.addEventListener('change', () => {
+  browser.storage.local.set({ dstLang: dstLangSelect.value });
+});
+
+// ---------------------------------------------------------------------------
+// AI notice toggle
+// ---------------------------------------------------------------------------
+const showAiNoticeCheckbox = document.getElementById('showAiNotice');
+
+browser.storage.local.get('showAiNotice').then(r => {
+  showAiNoticeCheckbox.checked = r.showAiNotice !== false; // default true
+});
+
+showAiNoticeCheckbox.addEventListener('change', () => {
+  browser.storage.local.set({ showAiNotice: showAiNoticeCheckbox.checked });
+});
+
+// ---------------------------------------------------------------------------
 // Subtitle display controls
 // ---------------------------------------------------------------------------
 const FONT_MIN = 12,  FONT_MAX = 96, FONT_STEP = 2;
@@ -115,16 +141,17 @@ bindStepper('winUp',    () => { settings.windowMinutes    = Math.min(WIN_MAX,  s
 // ---------------------------------------------------------------------------
 // Translation status panel
 // ---------------------------------------------------------------------------
-const statusRow = document.getElementById('statusRow');
+const statusRow  = document.getElementById('statusRow');
 const statusText = document.getElementById('statusText');
 const statusTime = document.getElementById('statusTime');
 
 const STATE_CONFIG = {
-  idle:        { label: 'Waiting for Netflix…',    cls: 'state-idle' },
-  detected:    { label: null,                       cls: 'state-detected' },
-  translating: { label: null,                       cls: 'state-translating' },
-  done:        { label: null,                       cls: 'state-done' },
-  error:       { label: null,                       cls: 'state-error' },
+  idle:        { label: 'Waiting for Netflix…', cls: 'state-idle' },
+  detected:    { label: null,                    cls: 'state-detected' },
+  translating: { label: null,                    cls: 'state-translating' },
+  done:        { label: null,                    cls: 'state-done' },
+  error:       { label: null,                    cls: 'state-error' },
+  ai_notice:   { label: null,                    cls: 'state-ai_notice' },
 };
 
 function relativeTime(ts) {
@@ -139,9 +166,7 @@ function renderStatus(status) {
   if (!status) return;
   const { state, message, ts } = status;
   const cfg = STATE_CONFIG[state] || STATE_CONFIG.idle;
-
-  // Remove all state classes, apply the right one
-  statusRow.className = `status-row ${cfg.cls}`;
+  statusRow.className    = `status-row ${cfg.cls}`;
   statusText.textContent = cfg.label || message;
   statusTime.textContent = ts ? relativeTime(ts) : '';
 }
@@ -156,7 +181,6 @@ browser.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.translationStatus) {
     renderStatus(changes.translationStatus.newValue);
     if (changes.translationStatus.newValue?.ts) {
-      // keep relative timestamp fresh
       clearInterval(window._timeInterval);
       window._timeInterval = setInterval(() => {
         const ts = changes.translationStatus.newValue.ts;

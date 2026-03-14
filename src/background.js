@@ -12,11 +12,45 @@ async function getApiKey() {
 }
 
 // ---------------------------------------------------------------------------
+// Language name lookup (for the AI system prompt)
+// ---------------------------------------------------------------------------
+const LANG_NAMES = {
+  'zh-hans': 'Simplified Chinese',
+  'zh-hant': 'Traditional Chinese',
+  'ja':      'Japanese',
+  'ko':      'Korean',
+  'es':      'Spanish',
+  'fr':      'French',
+  'de':      'German',
+  'pt':      'Portuguese',
+  'it':      'Italian',
+  'ru':      'Russian',
+  'ar':      'Arabic',
+  'hi':      'Hindi',
+  'th':      'Thai',
+  'vi':      'Vietnamese',
+  'id':      'Indonesian',
+  'nl':      'Dutch',
+  'pl':      'Polish',
+  'tr':      'Turkish',
+};
+
+function langName(code) {
+  if (!code) return 'the target language';
+  const lower = code.toLowerCase();
+  for (const [prefix, name] of Object.entries(LANG_NAMES)) {
+    if (lower === prefix || lower.startsWith(prefix + '-')) return name;
+  }
+  return code;
+}
+
+// ---------------------------------------------------------------------------
 // OpenAI batch translation
 // ---------------------------------------------------------------------------
-async function translateTexts(apiKey, texts) {
+async function translateTexts(apiKey, texts, dstLang) {
+  const targetLang = langName(dstLang);
   const systemPrompt =
-    'You are a subtitle translator. Translate each numbered English subtitle line to Simplified Chinese.\n' +
+    `You are a subtitle translator. Translate each numbered subtitle line to ${targetLang}.\n` +
     'Rules:\n' +
     '- Preserve \\n line breaks exactly as they appear.\n' +
     '- Keep the same number (N) on each output line.\n' +
@@ -28,7 +62,7 @@ async function translateTexts(apiKey, texts) {
   texts.forEach((t, i) => { numbered[i] = t; });
 
   LOG('--- OpenAI REQUEST ---');
-  LOG(`Sending ${texts.length} segments. First 3:`, texts.slice(0, 3));
+  LOG(`Sending ${texts.length} segments to ${targetLang}. First 3:`, texts.slice(0, 3));
 
   const requestBody = {
     model: 'gpt-4o-mini',
@@ -88,7 +122,7 @@ browser.runtime.onMessage.addListener((msg) => {
 
   return (async () => {
     try {
-      LOG('Message received — movieId:', msg.movieId, 'texts count:', msg.texts?.length);
+      LOG('Message received — movieId:', msg.movieId, 'dstLang:', msg.dstLang, 'texts count:', msg.texts?.length);
 
       const apiKey = await getApiKey();
       if (!apiKey) {
@@ -103,7 +137,7 @@ browser.runtime.onMessage.addListener((msg) => {
 
       let translations;
       try {
-        translations = await translateTexts(apiKey, texts);
+        translations = await translateTexts(apiKey, texts, msg.dstLang);
       } catch (err) {
         LOG('translateTexts threw:', err);
         return { ok: false, error: 'Translation error: ' + err.message };
