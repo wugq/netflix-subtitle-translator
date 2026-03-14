@@ -163,6 +163,13 @@ async function translateWindow(fromTime, toTime, gen) {
   if (isWindowTranslating) return false;
   isWindowTranslating = true;
 
+  const keyCheck = await browser.runtime.sendMessage({ type: 'checkApiKey' });
+  if (!keyCheck?.ok) {
+    setStatus('error', 'No API key — open extension settings');
+    isWindowTranslating = false;
+    return false;
+  }
+
   LOG(`Translating window ${fmt(fromTime)} → ${fmt(toTime)}`);
   setStatus('translating', `Translating ${fmt(fromTime)}–${fmt(toTime)}…`);
 
@@ -208,6 +215,11 @@ async function translateWindow(fromTime, toTime, gen) {
 
     if (!response || !response.ok) {
       LOG(`Batch failed:`, response?.error);
+      if (response?.error?.includes('No API key')) {
+        setStatus('error', 'No API key — open extension settings');
+        isWindowTranslating = false;
+        return false;
+      }
       continue; // non-fatal — leave as English
     }
 

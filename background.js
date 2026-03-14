@@ -77,6 +77,13 @@ async function translateTexts(apiKey, texts) {
 // Message handler
 // ---------------------------------------------------------------------------
 browser.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'checkApiKey') {
+    return (async () => {
+      const apiKey = await getApiKey();
+      return { ok: !!apiKey };
+    })();
+  }
+
   if (msg.type !== 'translate') return;
 
   return (async () => {
