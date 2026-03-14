@@ -10,7 +10,7 @@
   ],
   "browser_action": {
     "default_title": "Netflix Subtitle Translator",
-    "default_popup": "popup.html",
+    "default_popup": "popup/popup.html",
     "default_icon": {
       "48": "icons/icon.svg",
       "96": "icons/icon.svg"
@@ -20,20 +20,20 @@
     "48": "icons/icon.svg",
     "96": "icons/icon.svg"
   },
-  "web_accessible_resources": ["injected.js"],
+  "web_accessible_resources": ["src/injected.js"],
   "background": {
-    "scripts": ["background.js"],
+    "scripts": ["src/background.js"],
     "persistent": true
   },
   "content_scripts": [
     {
       "matches": ["*://www.netflix.com/*"],
-      "js": ["content.js"],
+      "js": ["src/content.js"],
       "run_at": "document_start"
     }
   ],
   "options_ui": {
-    "page": "options.html",
+    "page": "options/options.html",
     "open_in_tab": true
   },
   "browser_specific_settings": {
