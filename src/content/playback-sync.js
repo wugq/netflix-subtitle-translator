@@ -117,7 +117,7 @@ class PlaybackSync {
       ? this._store.getOriginal()
       : this._store.getOverlay();
     const activeSegs = this._findSegments(t, segs);
-    const text = activeSegs.map(s => s.text).join('\n');
+    const text = activeSegs.map(s => s.text).filter(Boolean).join('\n');
 
     if (this._logger.verboseLogging && t - this._lastVerboseLogTime >= 30) {
       this._lastVerboseLogTime = t;

@@ -24,6 +24,11 @@ class TranslationCache {
     this._save();
   }
 
+  clear() {
+    this._cache = {};
+    this._save();
+  }
+
   async _save() {
     try {
       const movieIds = Object.keys(this._cache);

@@ -56,6 +56,9 @@ class OptionsController {
     this._testBtn         = document.getElementById('testBtn');
     this._statusEl        = document.getElementById('status');
 
+    this._clearCacheBtn  = document.getElementById('clearCacheBtn');
+    this._cacheStatusEl  = document.getElementById('cacheStatus');
+
     this._consoleLoggingCheckbox = document.getElementById('consoleLogging');
     this._verboseLoggingCheckbox = document.getElementById('verboseLogging');
 
@@ -110,6 +113,18 @@ class OptionsController {
   }
 
   _bindEvents() {
+    this._clearCacheBtn.addEventListener('click', async () => {
+      this._clearCacheBtn.disabled = true;
+      try {
+        await browser.runtime.sendMessage({ type: 'clearCache' });
+        this._showCacheStatus('Translation cache cleared.', 'success');
+      } catch (err) {
+        this._showCacheStatus('Failed to clear cache: ' + err.message, 'error');
+      } finally {
+        this._clearCacheBtn.disabled = false;
+      }
+    });
+
     this._providerSelect.addEventListener('change', () => {
       this._setProvider(this._providerSelect.value, null);
     });
@@ -203,6 +218,15 @@ class OptionsController {
     this._statusEl.classList.remove('hidden');
     if (type === 'success' || type === 'info') {
       setTimeout(() => this._statusEl.classList.add('hidden'), 4000);
+    }
+  }
+
+  _showCacheStatus(message, type) {
+    this._cacheStatusEl.textContent = message;
+    this._cacheStatusEl.className = `status ${type}`;
+    this._cacheStatusEl.classList.remove('hidden');
+    if (type === 'success' || type === 'info') {
+      setTimeout(() => this._cacheStatusEl.classList.add('hidden'), 4000);
     }
   }
 }

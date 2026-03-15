@@ -139,6 +139,10 @@ class SubtitleController {
       this._logger.clog(`onNav url=${location.pathname} urlMovieId=${urlMovieId} currentMovieId=${this._currentMovieId} manifestCache=[${cachedIds}]`, this._stateSnapshot());
       if (!this._isOnWatchPage() || !urlMovieId) {
         browser.storage.local.remove('netflixLangStatus');
+        if (this._currentMovieId) {
+          this._currentMovieId = null;
+          this._resetStateForNewVideo();
+        }
         return;
       }
       if (String(urlMovieId) === String(this._currentMovieId)) return;
@@ -229,7 +233,6 @@ class SubtitleController {
 
     this._bus.on('settings:translationEnabled', ({ enabled }) => {
       this._logger.clog(`translationEnabled → ${enabled}`);
-      this._translationEnabled = enabled;
     });
   }
 

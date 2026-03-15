@@ -31,6 +31,10 @@ class TranslationService {
     if (msg.type === 'checkApiKey') {
       return this._checkApiKey();
     }
+    if (msg.type === 'clearCache') {
+      this._cache.clear();
+      return Promise.resolve({ ok: true });
+    }
     if (msg.type === 'getCache') {
       return Promise.resolve({ ok: true, translations: this._cache.get(msg.movieId, msg.dstLang) });
     }

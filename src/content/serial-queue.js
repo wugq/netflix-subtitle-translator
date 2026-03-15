@@ -11,8 +11,6 @@ class SerialQueue {
     if (!this._running) { this._running = true; this._drain(); }
   }
 
-  get isRunning() { return this._running; }
-
   async _drain() {
     while (this._pending) {
       const { fn } = this._pending; this._pending = null;
