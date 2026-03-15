@@ -24,6 +24,12 @@ const SUBTITLE_STYLES = {
   },
 };
 
+const CONTROLS_SELECTORS = [
+  '.watch-video--bottom-controls-container',
+  '.PlayerControlsNeo__layout',
+  '[data-uia="player-controls-container"]',
+];
+
 class SubtitleOverlay {
   constructor() {
     this._overlayEl          = null;
@@ -33,6 +39,8 @@ class SubtitleOverlay {
     this._fontSize           = 24;
     this._bottomPct          = 8;
     this._style              = 'classic';
+    this._controlsRafId      = null;
+    this._controlsBump       = 0;
   }
 
   ensure() {
@@ -49,6 +57,7 @@ class SubtitleOverlay {
       z-index: 2147483647;
       pointer-events: none;
       text-align: center;
+      transition: bottom 0.25s ease;
     `;
     document.body.appendChild(this._overlayEl);
 
@@ -58,6 +67,43 @@ class SubtitleOverlay {
       if (this._flashEl) target.appendChild(this._flashEl);
     };
     document.addEventListener('fullscreenchange', this._fullscreenHandler);
+
+    this._startControlsWatch();
+  }
+
+  _startControlsWatch() {
+    let lastBump = -1;
+    const check = () => {
+      this._controlsRafId = requestAnimationFrame(check);
+      const controls = CONTROLS_SELECTORS.reduce(
+        (found, sel) => found || document.querySelector(sel), null
+      );
+
+      let bump = 0;
+      if (controls) {
+        const rect    = controls.getBoundingClientRect();
+        const opacity = parseFloat(window.getComputedStyle(controls).opacity);
+        if (opacity > 0.05 && rect.height > 0) {
+          const h = window.innerHeight;
+          // Where the subtitle's bottom edge sits without any bump
+          const subtitleBottomFromTop = h * (1 - this._bottomPct / 100);
+          if (subtitleBottomFromTop > rect.top) {
+            // Overlapping — push up just enough to clear the controls top
+            bump = Math.round(((subtitleBottomFromTop - rect.top) / h) * 1000) / 10;
+          }
+        }
+      }
+
+      if (bump !== lastBump) { lastBump = bump; this._setControlsBump(bump); }
+    };
+    check();
+  }
+
+  _setControlsBump(bumpPct) {
+    this._controlsBump = bumpPct;
+    if (this._overlayEl) {
+      this._overlayEl.style.bottom = (this._bottomPct + bumpPct) + '%';
+    }
   }
 
   render(text) {
@@ -84,7 +130,7 @@ class SubtitleOverlay {
     this._bottomPct = bottomPct;
     if (style) this._style = style;
     if (!this._overlayEl) return;
-    this._overlayEl.style.bottom = bottomPct + '%';
+    this._overlayEl.style.bottom = (bottomPct + (this._controlsBump || 0)) + '%';
     const inner = this._overlayEl.querySelector('div');
     if (inner) {
       const s = SUBTITLE_STYLES[this._style] || SUBTITLE_STYLES.classic;
@@ -130,6 +176,7 @@ class SubtitleOverlay {
   }
 
   destroy() {
+    if (this._controlsRafId) { cancelAnimationFrame(this._controlsRafId); this._controlsRafId = null; }
     if (this._fullscreenHandler) {
       document.removeEventListener('fullscreenchange', this._fullscreenHandler);
       this._fullscreenHandler = null;
