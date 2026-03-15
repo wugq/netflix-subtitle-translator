@@ -9,7 +9,9 @@ A Firefox browser extension that translates Netflix subtitles in real-time using
 - **Progressive buffering** — subtitles start appearing quickly while translation continues in the background
 - **Translation caching** — subtitles are cached per movie/language pair so you don't re-translate on rewatch
 - **Batch processing** — minimizes API calls by translating up to 50 subtitle segments per request
-- **Customizable display** — adjust font size and vertical position from the popup
+- **Dual subtitles** — optionally show the original source text below the translation for comparison
+- **Customizable display** — adjust font size, vertical position, and subtitle style (Classic, Shadow, Yellow)
+- **Language availability indicators** — the popup shows which destination languages Netflix has natively (●), which need selecting in Netflix first (○), and which require AI (✦)
 - **18 supported languages** — Chinese (Simplified & Traditional), Japanese, Korean, Spanish, French, German, Portuguese, Italian, Russian, Arabic, Hindi, Thai, Vietnamese, Indonesian, Dutch, Polish, Turkish
 
 ## How It Works
@@ -17,8 +19,8 @@ A Firefox browser extension that translates Netflix subtitles in real-time using
 The extension intercepts Netflix's subtitle loading process at the browser level:
 
 1. **`injected.js`** patches `JSON.parse` and `window.fetch` in Netflix's page context to capture subtitle manifest data and detect which language track is active
-2. **`content.js`** fetches and parses the subtitle files (TTML/WebVTT), determines the translation mode, and renders translated text in a custom overlay synced to the video
-3. **`background.js`** handles AI API calls, batching, retry logic, and persistent caching
+2. **`src/content/`** fetches and parses the subtitle files (TTML format), determines the translation mode, and renders translated text in a custom overlay synced to the video playback position
+3. **`src/background/`** handles AI API calls, batching, and persistent caching
 
 ### Translation Modes
 
@@ -26,7 +28,7 @@ The extension intercepts Netflix's subtitle loading process at the browser level
 |---|---|---|
 | Passthrough | Source = destination language | None |
 | Native | Netflix has subtitles in your destination language | None |
-| AI | No native subtitles available | OpenAI GPT |
+| AI | No native subtitles available | OpenAI or xAI |
 
 When AI translation is needed, the extension prefers English as the source language (rather than the audio language) for better translation quality.
 
@@ -67,11 +69,13 @@ When AI translation is needed, the extension prefers English as the source langu
 Click the extension icon while watching Netflix to:
 
 - **Toggle translation** on/off
-- **Select destination language**
+- **Select destination language** — indicators show Netflix availability at a glance
+- **Show original text when translating** — displays source-language text below the translation
 - **Adjust font size** and subtitle vertical position
-- **View translation status** (buffering progress, current mode)
+- **Choose subtitle style** — Classic (dark background), Shadow, or Yellow
+- **View translation status** — shows buffering progress and current mode
 
-Advanced settings (lookahead window, debug logging) are available in the full options page.
+Advanced settings (lookahead window, clear cache, debug logging) are available in the full options page.
 
 ## Privacy
 
