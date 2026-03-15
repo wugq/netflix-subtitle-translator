@@ -106,7 +106,7 @@ class SubtitleOverlay {
     }
   }
 
-  render(text) {
+  render(text, origText) {
     if (!this._overlayEl) return;
     this._overlayEl.textContent = '';
     if (!text) return;
@@ -122,6 +122,17 @@ class SubtitleOverlay {
       if (i > 0) div.appendChild(document.createElement('br'));
       div.appendChild(document.createTextNode(line));
     });
+    if (origText) {
+      const orig = document.createElement('div');
+      orig.style.cssText =
+        `font-size:${Math.round((this._fontSize || 24) * 0.72)}px;` +
+        `opacity:0.75;margin-top:3px;font-weight:400;`;
+      origText.split('\n').forEach((line, i) => {
+        if (i > 0) orig.appendChild(document.createElement('br'));
+        orig.appendChild(document.createTextNode(line));
+      });
+      div.appendChild(orig);
+    }
     this._overlayEl.appendChild(div);
   }
 
@@ -139,6 +150,8 @@ class SubtitleOverlay {
       inner.style.textShadow   = s.textShadow;
       inner.style.borderRadius = s.borderRadius;
       inner.style.padding      = s.padding;
+      const origEl = inner.querySelector('div');
+      if (origEl) origEl.style.fontSize = Math.round(fontSize * 0.72) + 'px';
     }
   }
 

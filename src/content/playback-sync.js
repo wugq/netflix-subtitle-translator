@@ -16,6 +16,7 @@ class PlaybackSync {
     this._playHandler       = null;
     this._pauseHandler      = null;
     this._lastRenderedText  = null;
+    this._lastRenderedOrig  = null;
     this._lastVerboseLogTime = -1;
     this._lastWatchPageState = null;
   }
@@ -82,6 +83,7 @@ class PlaybackSync {
     if (!this._cbs.isOnWatchPage()) {
       if (this._lastRenderedText !== null) {
         this._lastRenderedText = null;
+        this._lastRenderedOrig = null;
         this._overlay.render('');
       }
       if (this._lastWatchPageState !== false) {
@@ -119,6 +121,14 @@ class PlaybackSync {
     const activeSegs = this._findSegments(t, segs);
     const text = activeSegs.map(s => s.text).filter(Boolean).join('\n');
 
+    // Show original text below translation when enabled
+    let origText = null;
+    if (state.showOriginalText && state.needsAiTranslation && state.translationEnabled) {
+      const origSegs = this._findSegments(t, this._store.getOriginal());
+      const raw = origSegs.map(s => s.text).filter(Boolean).join('\n');
+      if (raw) origText = raw;
+    }
+
     if (this._logger.verboseLogging && t - this._lastVerboseLogTime >= 30) {
       this._lastVerboseLogTime = t;
       this._logger.vlog('Playback timing', {
@@ -131,7 +141,11 @@ class PlaybackSync {
       });
     }
 
-    if (text !== this._lastRenderedText) { this._lastRenderedText = text; this._overlay.render(text); }
+    if (text !== this._lastRenderedText || origText !== this._lastRenderedOrig) {
+      this._lastRenderedText = text;
+      this._lastRenderedOrig = origText;
+      this._overlay.render(text, origText);
+    }
   }
 
   _findSegments(time, segs) {

@@ -37,6 +37,7 @@ class SubtitleController {
     this._subtitleStyle       = 'classic';
     this._translationEnabled  = true;
     this._showNotice          = true;
+    this._showOriginalText    = false;
 
     // Status tracking (fix for undeclared lastStatus reference)
     this._lastStatus = null;
@@ -76,7 +77,7 @@ class SubtitleController {
     // Load persisted settings
     browser.storage.local.get([
       'subtitleFontSize', 'subtitleBottom', 'subtitleStyle', 'windowMinutes', 'translationEnabled', 'dstLang',
-      'showNotice', 'verboseLogging',
+      'showNotice', 'verboseLogging', 'showOriginalText',
     ]).then(r => {
       if (r.subtitleFontSize   != null) this._subtitleFontSize   = r.subtitleFontSize;
       if (r.subtitleBottom     != null) this._subtitleBottom     = r.subtitleBottom;
@@ -85,6 +86,7 @@ class SubtitleController {
       if (r.translationEnabled != null) this._translationEnabled = r.translationEnabled;
       if (r.dstLang            != null) this._dstLang            = r.dstLang;
       if (r.showNotice         != null) this._showNotice         = r.showNotice;
+      if (r.showOriginalText   != null) this._showOriginalText   = r.showOriginalText;
       if (r.verboseLogging     != null) {
         this._logger.configure(r.verboseLogging);
       }
@@ -106,7 +108,8 @@ class SubtitleController {
         this._dstLang = changes.dstLang.newValue;
         this._onLanguageChanged('dstLang');
       }
-      if ('showNotice'     in changes) this._showNotice   = changes.showNotice.newValue;
+      if ('showNotice'       in changes) this._showNotice       = changes.showNotice.newValue;
+      if ('showOriginalText' in changes) this._showOriginalText = changes.showOriginalText.newValue;
       if ('verboseLogging' in changes) {
         this._logger.configure(changes.verboseLogging.newValue);
       }
@@ -585,6 +588,7 @@ class SubtitleController {
       rollingWindowEnd:   this._rollingWindowEnd,
       windowMinutes:      this._windowMinutes,
       signal:             this._session.signal,
+      showOriginalText:   this._showOriginalText,
     };
   }
 
