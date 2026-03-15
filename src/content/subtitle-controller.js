@@ -137,7 +137,10 @@ class SubtitleController {
       const urlMovieId = this._getMovieIdFromUrl();
       const cachedIds  = Object.keys(this._manifestCache);
       this._logger.clog(`onNav url=${location.pathname} urlMovieId=${urlMovieId} currentMovieId=${this._currentMovieId} manifestCache=[${cachedIds}]`, this._stateSnapshot());
-      if (!this._isOnWatchPage() || !urlMovieId) return;
+      if (!this._isOnWatchPage() || !urlMovieId) {
+        browser.storage.local.remove('netflixLangStatus');
+        return;
+      }
       if (String(urlMovieId) === String(this._currentMovieId)) return;
       const tracks = this._manifestCache[urlMovieId];
       if (tracks) {
@@ -214,14 +217,14 @@ class SubtitleController {
         this._initialTranslation(time, null, this._session.start());
       } else {
         this._logger.clog(`playback:play at ${this._fmt(time)}, no translation (needsAi=${this._needsAiTranslation} enabled=${this._translationEnabled})`);
-        this._setStatus('done', 'Playback resumed');
+        this._setModeStatus(this._currentMode);
       }
     });
 
     this._bus.on('playback:pause', () => {
       this._logger.clog('playback:pause — cancelling session');
       this._session.cancel();
-      this._setStatus('done', 'Translation paused \u2014 playback paused');
+      this._setModeStatus(this._currentMode);
     });
 
     this._bus.on('settings:translationEnabled', ({ enabled }) => {
@@ -483,7 +486,7 @@ class SubtitleController {
   async _initialTranslation(startTime, flashMsg, signal) {
     if (signal.aborted) return;
     if (!this._canTranslateNow()) {
-      this._setStatus('done', 'Translation paused \u2014 playback not active');
+      this._setModeStatus(this._currentMode);
       return;
     }
     const duration = this._sync.videoEl?.duration || Infinity;
@@ -549,7 +552,7 @@ class SubtitleController {
   _setModeStatus(mode) {
     this._setStatus('done', mode === 'native' ? 'Using Netflix native subtitles'
       : mode === 'passthrough' ? 'Source and destination are the same language'
-      : 'Translation paused');
+      : 'AI translation active');
   }
 
   _onLanguageChanged(reason) {

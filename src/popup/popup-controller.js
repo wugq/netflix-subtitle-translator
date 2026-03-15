@@ -246,7 +246,7 @@ class PopupController {
   _updateLangIndicators(langStatus) {
     const opts = Array.from(this._dstLangSelect.options);
     for (const opt of opts) {
-      const base = opt.dataset.baseText || opt.textContent.replace(/ [●○]$/, '');
+      const base = opt.dataset.baseText || opt.textContent.replace(/^[●○✦] /, '');
       opt.dataset.baseText = base;
 
       if (!langStatus) {
@@ -255,11 +255,11 @@ class PopupController {
       }
       const { nativeAvailable = [], needsSelection = [] } = langStatus;
       if (nativeAvailable.some(l => this._langMatches(l, opt.value))) {
-        opt.textContent = base + ' ●';
+        opt.textContent = '● ' + base;
       } else if (needsSelection.some(l => this._langMatches(l, opt.value))) {
-        opt.textContent = base + ' ○';
+        opt.textContent = '○ ' + base;
       } else {
-        opt.textContent = base;
+        opt.textContent = '✦ ' + base;
       }
     }
   }
