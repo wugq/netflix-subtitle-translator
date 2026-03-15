@@ -43,6 +43,7 @@ class PopupController {
     this._openOptionsBtn = document.getElementById('openOptions');
     this._dstLangSelect = document.getElementById('dstLang');
     this._showNoticeCheckbox = document.getElementById('showNotice');
+    this._subtitleStyleSelect = document.getElementById('subtitleStyle');
     this._statusRow  = document.getElementById('statusRow');
     this._statusText = document.getElementById('statusText');
     this._statusTime = document.getElementById('statusTime');
@@ -109,6 +110,10 @@ class PopupController {
 
     this._showNoticeCheckbox.addEventListener('change', () => {
       browser.storage.local.set({ showNotice: this._showNoticeCheckbox.checked });
+    });
+
+    this._subtitleStyleSelect.addEventListener('change', () => {
+      browser.storage.local.set({ subtitleStyle: this._subtitleStyleSelect.value });
     });
 
     this._bindSteppers();
@@ -195,6 +200,11 @@ class PopupController {
     // AI notice toggle
     browser.storage.local.get('showNotice').then(r => {
       this._showNoticeCheckbox.checked = r.showNotice !== false;
+    });
+
+    // Subtitle style
+    browser.storage.local.get('subtitleStyle').then(r => {
+      if (r.subtitleStyle) this._subtitleStyleSelect.value = r.subtitleStyle;
     });
 
     // Display settings

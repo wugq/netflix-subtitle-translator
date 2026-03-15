@@ -34,6 +34,7 @@ class SubtitleController {
     this._windowMinutes       = 5;
     this._subtitleFontSize    = 24;
     this._subtitleBottom      = 8;
+    this._subtitleStyle       = 'classic';
     this._translationEnabled  = true;
     this._showNotice          = true;
 
@@ -74,19 +75,20 @@ class SubtitleController {
 
     // Load persisted settings
     browser.storage.local.get([
-      'subtitleFontSize', 'subtitleBottom', 'windowMinutes', 'translationEnabled', 'dstLang',
-      'showNotice', 'consoleLogging', 'verboseLogging',
+      'subtitleFontSize', 'subtitleBottom', 'subtitleStyle', 'windowMinutes', 'translationEnabled', 'dstLang',
+      'showNotice', 'verboseLogging',
     ]).then(r => {
       if (r.subtitleFontSize   != null) this._subtitleFontSize   = r.subtitleFontSize;
       if (r.subtitleBottom     != null) this._subtitleBottom     = r.subtitleBottom;
+      if (r.subtitleStyle      != null) this._subtitleStyle      = r.subtitleStyle;
       if (r.windowMinutes      != null) this._windowMinutes      = r.windowMinutes;
       if (r.translationEnabled != null) this._translationEnabled = r.translationEnabled;
       if (r.dstLang            != null) this._dstLang            = r.dstLang;
       if (r.showNotice         != null) this._showNotice         = r.showNotice;
-      if (r.consoleLogging     != null || r.verboseLogging != null) {
-        this._logger.configure(r.consoleLogging || false, r.verboseLogging || false);
+      if (r.verboseLogging     != null) {
+        this._logger.configure(r.verboseLogging);
       }
-      this._overlay.applyStyle(this._subtitleFontSize, this._subtitleBottom);
+      this._overlay.applyStyle(this._subtitleFontSize, this._subtitleBottom, this._subtitleStyle);
     });
 
     browser.storage.onChanged.addListener((changes, area) => {
@@ -94,6 +96,7 @@ class SubtitleController {
       let styleChanged = false;
       if ('subtitleFontSize' in changes) { this._subtitleFontSize = changes.subtitleFontSize.newValue; styleChanged = true; }
       if ('subtitleBottom'   in changes) { this._subtitleBottom   = changes.subtitleBottom.newValue;   styleChanged = true; }
+      if ('subtitleStyle'    in changes) { this._subtitleStyle    = changes.subtitleStyle.newValue;    styleChanged = true; }
       if ('windowMinutes'      in changes) this._windowMinutes      = changes.windowMinutes.newValue;
       if ('translationEnabled' in changes) {
         this._translationEnabled = changes.translationEnabled.newValue;
@@ -104,14 +107,11 @@ class SubtitleController {
         this._onLanguageChanged('dstLang');
       }
       if ('showNotice'     in changes) this._showNotice   = changes.showNotice.newValue;
-      if ('consoleLogging' in changes || 'verboseLogging' in changes) {
-        this._logger.configure(
-          'consoleLogging' in changes ? changes.consoleLogging.newValue : this._logger._consoleLogging,
-          'verboseLogging' in changes ? changes.verboseLogging.newValue : this._logger._verboseLogging,
-        );
+      if ('verboseLogging' in changes) {
+        this._logger.configure(changes.verboseLogging.newValue);
       }
       if (styleChanged) {
-        this._overlay.applyStyle(this._subtitleFontSize, this._subtitleBottom);
+        this._overlay.applyStyle(this._subtitleFontSize, this._subtitleBottom, this._subtitleStyle);
       }
     });
 

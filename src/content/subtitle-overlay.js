@@ -1,5 +1,29 @@
 'use strict';
 
+const SUBTITLE_STYLES = {
+  classic: {
+    background:  'rgba(0,0,0,0.75)',
+    color:       '#fff',
+    textShadow:  'none',
+    borderRadius: '3px',
+    padding:     '4px 12px 6px',
+  },
+  shadow: {
+    background:  'transparent',
+    color:       '#fff',
+    textShadow:  '0 1px 6px #000, 0 0 24px rgba(0,0,0,0.95)',
+    borderRadius: '0',
+    padding:     '4px 12px 6px',
+  },
+  yellow: {
+    background:  'transparent',
+    color:       '#ffef00',
+    textShadow:  '0 1px 4px #000, 0 0 16px rgba(0,0,0,0.9)',
+    borderRadius: '0',
+    padding:     '4px 12px 6px',
+  },
+};
+
 class SubtitleOverlay {
   constructor() {
     this._overlayEl          = null;
@@ -8,6 +32,7 @@ class SubtitleOverlay {
     this._fullscreenHandler  = null;
     this._fontSize           = 24;
     this._bottomPct          = 8;
+    this._style              = 'classic';
   }
 
   ensure() {
@@ -39,12 +64,14 @@ class SubtitleOverlay {
     if (!this._overlayEl) return;
     this._overlayEl.textContent = '';
     if (!text) return;
+    const s = SUBTITLE_STYLES[this._style] || SUBTITLE_STYLES.classic;
     const div = document.createElement('div');
     div.style.cssText =
-      'display:inline-block;background:rgba(0,0,0,0.75);color:#fff;' +
+      `display:inline-block;background:${s.background};color:${s.color};` +
+      `text-shadow:${s.textShadow};` +
       `font-size:${this._fontSize || 24}px;font-family:'Netflix Sans',Arial,sans-serif;` +
-      'font-weight:500;line-height:1.5;padding:4px 12px 6px;' +
-      'border-radius:3px;white-space:pre-wrap;max-width:90vw;';
+      `font-weight:500;line-height:1.5;padding:${s.padding};` +
+      `border-radius:${s.borderRadius};white-space:pre-wrap;max-width:90vw;`;
     text.split('\n').forEach((line, i) => {
       if (i > 0) div.appendChild(document.createElement('br'));
       div.appendChild(document.createTextNode(line));
@@ -52,13 +79,21 @@ class SubtitleOverlay {
     this._overlayEl.appendChild(div);
   }
 
-  applyStyle(fontSize, bottomPct) {
+  applyStyle(fontSize, bottomPct, style) {
     this._fontSize = fontSize;
     this._bottomPct = bottomPct;
+    if (style) this._style = style;
     if (!this._overlayEl) return;
     this._overlayEl.style.bottom = bottomPct + '%';
     const inner = this._overlayEl.querySelector('div');
-    if (inner) inner.style.fontSize = fontSize + 'px';
+    if (inner) {
+      const s = SUBTITLE_STYLES[this._style] || SUBTITLE_STYLES.classic;
+      inner.style.fontSize     = fontSize + 'px';
+      inner.style.background   = s.background;
+      inner.style.textShadow   = s.textShadow;
+      inner.style.borderRadius = s.borderRadius;
+      inner.style.padding      = s.padding;
+    }
   }
 
   showFlash(message) {

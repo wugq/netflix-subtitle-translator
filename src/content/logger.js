@@ -2,19 +2,15 @@
 
 class Logger {
   constructor() {
-    this._consoleLogging = false;
     this._verboseLogging = false;
     this._appName = 'Netflix Subtitle Translator';
   }
 
-  configure(consoleLogging, verboseLogging) {
-    this._consoleLogging = consoleLogging;
+  configure(verboseLogging) {
     this._verboseLogging = verboseLogging;
   }
 
-  clog(...args) {
-    if (this._consoleLogging) console.log(`[${this._appName}]`, ...args);
-  }
+  clog() {}
 
   vlog(...args) {
     if (this._verboseLogging) this._send(this._formatArgs(args));

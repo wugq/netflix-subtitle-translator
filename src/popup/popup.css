@@ -227,6 +227,22 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
+.style-select {
+  background: #2a2a2a;
+  color: #e5e5e5;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+.style-select:focus {
+  border-color: #555;
+}
+
 /* Status panel */
 .status-panel {
   margin: 10px 14px 0;

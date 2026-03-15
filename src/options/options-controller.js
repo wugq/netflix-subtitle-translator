@@ -30,12 +30,12 @@ const PROVIDER_CONFIGS = {
   openai: {
     label:   'OpenAI',
     baseUrl: '',
-    models:  ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'o3-mini'],
+    models:  ['gpt-4o-mini'],
   },
   xai: {
     label:   'xAI',
     baseUrl: 'https://api.x.ai/v1',
-    models:  ['grok-3-mini', 'grok-3', 'grok-2'],
+    models:  ['grok-3-mini'],
   },
 };
 
@@ -59,7 +59,6 @@ class OptionsController {
     this._clearCacheBtn  = document.getElementById('clearCacheBtn');
     this._cacheStatusEl  = document.getElementById('cacheStatus');
 
-    this._consoleLoggingCheckbox = document.getElementById('consoleLogging');
     this._verboseLoggingCheckbox = document.getElementById('verboseLogging');
 
     this._logOutput     = document.getElementById('logOutput');
@@ -78,8 +77,7 @@ class OptionsController {
     });
 
     // Load logging toggles
-    browser.storage.local.get(['consoleLogging', 'verboseLogging']).then(r => {
-      this._consoleLoggingCheckbox.checked = r.consoleLogging || false;
+    browser.storage.local.get('verboseLogging').then(r => {
       this._verboseLoggingCheckbox.checked = r.verboseLogging || false;
     });
 
@@ -129,9 +127,6 @@ class OptionsController {
       this._setProvider(this._providerSelect.value, null);
     });
 
-    this._consoleLoggingCheckbox.addEventListener('change', () => {
-      browser.storage.local.set({ consoleLogging: this._consoleLoggingCheckbox.checked });
-    });
     this._verboseLoggingCheckbox.addEventListener('change', () => {
       browser.storage.local.set({ verboseLogging: this._verboseLoggingCheckbox.checked });
     });

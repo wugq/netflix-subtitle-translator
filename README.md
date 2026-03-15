@@ -4,7 +4,7 @@ A Firefox browser extension that translates Netflix subtitles in real-time using
 
 ## Features
 
-- **Real-time AI translation** — works with OpenAI, xAI (Grok), Google Gemini, or any OpenAI-compatible endpoint
+- **Real-time AI translation** — works with OpenAI (gpt-4o-mini) or xAI (grok-3-mini)
 - **Smart mode detection** — uses Netflix's native subtitles when available, falls back to AI translation
 - **Progressive buffering** — subtitles start appearing quickly while translation continues in the background
 - **Translation caching** — subtitles are cached per movie/language pair so you don't re-translate on rewatch
@@ -48,12 +48,10 @@ When AI translation is needed, the extension prefers English as the source langu
 
 ## Supported AI Providers
 
-| Provider | Models |
+| Provider | Model |
 |---|---|
-| OpenAI | gpt-4o-mini, gpt-4o, gpt-4-turbo, o3-mini |
-| xAI | grok-3-mini, grok-3, grok-2 |
-
-> **Why isn't Anthropic (Claude) listed?** Anthropic's API uses a different request format and authentication scheme — it is not compatible with the OpenAI `/chat/completions` interface that this extension uses. Claude models are not supported.
+| OpenAI | gpt-4o-mini |
+| xAI | grok-3-mini |
 
 ## Setup
 
