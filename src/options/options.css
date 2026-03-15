@@ -59,7 +59,9 @@ label {
   font-weight: 500;
 }
 
-input[type="password"] {
+input[type="password"],
+input[type="text"],
+select {
   width: 100%;
   padding: 0.6rem 0.75rem;
   background: #333;
@@ -72,8 +74,19 @@ input[type="password"] {
   transition: border-color 0.15s;
 }
 
-input[type="password"]:focus {
+input[type="password"]:focus,
+input[type="text"]:focus,
+select:focus {
   border-color: #e50914;
+}
+
+select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.hidden {
+  display: none;
 }
 
 .actions {

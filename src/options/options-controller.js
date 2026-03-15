@@ -26,14 +26,35 @@ if (typeof browser === 'undefined') {
   });
 }
 
+const PROVIDER_CONFIGS = {
+  openai: {
+    label:   'OpenAI',
+    baseUrl: '',
+    models:  ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'o3-mini'],
+  },
+  xai: {
+    label:   'xAI',
+    baseUrl: 'https://api.x.ai/v1',
+    models:  ['grok-3-mini', 'grok-3', 'grok-2'],
+  },
+};
+
+function detectProvider(baseUrl) {
+  const url = (baseUrl || '').trim().replace(/\/$/, '');
+  if (url === PROVIDER_CONFIGS.xai.baseUrl) return 'xai';
+  return 'openai';
+}
+
 class OptionsController {
   constructor() {
     this._LOG_KEY = 'nstLogBuffer';
 
-    this._apiKeyInput = document.getElementById('apiKey');
-    this._saveBtn     = document.getElementById('saveBtn');
-    this._testBtn     = document.getElementById('testBtn');
-    this._statusEl    = document.getElementById('status');
+    this._apiKeyInput    = document.getElementById('apiKey');
+    this._providerSelect = document.getElementById('aiProvider');
+    this._aiModelSelect  = document.getElementById('aiModel');
+    this._saveBtn        = document.getElementById('saveBtn');
+    this._testBtn         = document.getElementById('testBtn');
+    this._statusEl        = document.getElementById('status');
 
     this._consoleLoggingCheckbox = document.getElementById('consoleLogging');
     this._verboseLoggingCheckbox = document.getElementById('verboseLogging');
@@ -47,9 +68,10 @@ class OptionsController {
     this._bindEvents();
     this._loadLogs();
 
-    // Load saved API key
-    browser.storage.local.get('openaiApiKey').then(result => {
-      if (result.openaiApiKey) this._apiKeyInput.value = result.openaiApiKey;
+    // Load saved settings
+    browser.storage.local.get(['openaiApiKey', 'aiModel', 'aiBaseUrl']).then(r => {
+      if (r.openaiApiKey) this._apiKeyInput.value = r.openaiApiKey;
+      this._setProvider(detectProvider(r.aiBaseUrl), r.aiModel);
     });
 
     // Load logging toggles
@@ -65,7 +87,33 @@ class OptionsController {
     });
   }
 
+  _populateModels(providerKey, currentModel) {
+    const cfg = PROVIDER_CONFIGS[providerKey];
+    this._aiModelSelect.innerHTML = '';
+    cfg.models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m; opt.textContent = m;
+      this._aiModelSelect.appendChild(opt);
+    });
+    if (currentModel && cfg.models.includes(currentModel)) {
+      this._aiModelSelect.value = currentModel;
+    }
+  }
+
+  _setProvider(providerKey, currentModel) {
+    this._providerSelect.value = providerKey;
+    this._populateModels(providerKey, currentModel);
+  }
+
+  _getSelectedModel() {
+    return this._aiModelSelect.value;
+  }
+
   _bindEvents() {
+    this._providerSelect.addEventListener('change', () => {
+      this._setProvider(this._providerSelect.value, null);
+    });
+
     this._consoleLoggingCheckbox.addEventListener('change', () => {
       browser.storage.local.set({ consoleLogging: this._consoleLoggingCheckbox.checked });
     });
@@ -94,32 +142,29 @@ class OptionsController {
 
     this._saveBtn.addEventListener('click', async () => {
       const key = this._apiKeyInput.value.trim();
+      const providerKey = this._providerSelect.value;
+      const model = this._getSelectedModel();
+      const baseUrl = PROVIDER_CONFIGS[providerKey].baseUrl;
       if (!key) { this._showStatus('Please enter an API key.', 'error'); return; }
-      if (!key.startsWith('sk-')) {
-        this._showStatus('API key must start with "sk-". Please check your key.', 'error');
-        return;
-      }
-      await browser.storage.local.set({ openaiApiKey: key });
-      this._showStatus('API key saved successfully.', 'success');
+      await browser.storage.local.set({ openaiApiKey: key, aiModel: model, aiBaseUrl: baseUrl });
+      this._showStatus('Settings saved successfully.', 'success');
     });
 
     this._testBtn.addEventListener('click', async () => {
       const key = this._apiKeyInput.value.trim();
-      if (!key) { this._showStatus('Please enter an API key first.', 'error'); return; }
-      if (!key.startsWith('sk-')) {
-        this._showStatus('API key must start with "sk-".', 'error');
-        return;
-      }
+      const providerKey = this._providerSelect.value;
+      const model = this._getSelectedModel();
+      const rawBaseUrl = PROVIDER_CONFIGS[providerKey].baseUrl || 'https://api.openai.com/v1';
 
-      this._showStatus('Testing API key...', 'info');
+      this._showStatus('Testing connection...', 'info');
       this._testBtn.disabled = true;
 
       try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        const response = await fetch(`${rawBaseUrl}/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
           body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model,
             temperature: 0,
             max_tokens: 10,
             messages: [{ role: 'user', content: 'Reply with the word OK.' }],
@@ -127,11 +172,11 @@ class OptionsController {
         });
 
         if (response.ok) {
-          this._showStatus('API key is valid and working.', 'success');
+          this._showStatus('Connection successful — provider is working.', 'success');
         } else {
           const body = await response.json().catch(() => ({}));
           const msg = body.error?.message || `HTTP ${response.status}`;
-          this._showStatus(`API key test failed: ${msg}`, 'error');
+          this._showStatus(`Test failed: ${msg}`, 'error');
         }
       } catch (err) {
         this._showStatus(`Network error: ${err.message}`, 'error');

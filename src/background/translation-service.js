@@ -44,13 +44,17 @@ class TranslationService {
   }
 
   async _checkApiKey() {
-    const apiKey = await this._getApiKey();
-    return { ok: !!apiKey };
+    const config = await this._getConfig();
+    return { ok: !!config.apiKey };
   }
 
-  async _getApiKey() {
-    const r = await browser.storage.local.get('openaiApiKey');
-    return r.openaiApiKey || null;
+  async _getConfig() {
+    const r = await browser.storage.local.get(['openaiApiKey', 'aiModel', 'aiBaseUrl']);
+    return {
+      apiKey:  r.openaiApiKey || '',
+      model:   r.aiModel || 'gpt-4o-mini',
+      baseUrl: (r.aiBaseUrl || '').trim().replace(/\/$/, '') || 'https://api.openai.com/v1',
+    };
   }
 
   async _translate(msg) {
@@ -58,8 +62,8 @@ class TranslationService {
       const { movieId, items, dstLang, requestId } = msg;
       this._logger.vlog('Translate request — movieId:', movieId, 'dstLang:', dstLang, 'count:', items?.length, 'requestId:', requestId);
 
-      const apiKey = await this._getApiKey();
-      if (!apiKey) {
+      const config = await this._getConfig();
+      if (!config.apiKey) {
         this._logger.clog('No API key configured');
         return { ok: false, error: 'No API key — open extension settings' };
       }
@@ -82,7 +86,7 @@ class TranslationService {
 
       if (pending.length > 0) {
         try {
-          const newTranslations = await this._translateItems(apiKey, pending, dstLang);
+          const newTranslations = await this._translateItems(config, pending, dstLang);
           Object.assign(results, newTranslations);
           this._cache.update(movieId, dstLang, newTranslations);
         } catch (err) {
@@ -110,7 +114,7 @@ class TranslationService {
     }
   }
 
-  async _callOpenAI(apiKey, keyed, dstLang) {
+  async _callOpenAI(config, keyed, dstLang) {
     const targetLang = this.langName(dstLang);
     const systemPrompt =
       `You are a subtitle translator. Translate each subtitle line to ${targetLang}.\n` +
@@ -124,7 +128,7 @@ class TranslationService {
     this._logger.vlog(`OpenAI request: ${keyedEntries.length} segments \u2192 ${targetLang}`, keyedEntries.slice(0, 3));
 
     const requestBody = {
-      model: 'gpt-4o-mini',
+      model: config.model,
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
@@ -133,11 +137,11 @@ class TranslationService {
       ],
     };
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify(requestBody),
     });
@@ -161,11 +165,11 @@ class TranslationService {
     return map;
   }
 
-  async _translateItems(apiKey, items, dstLang) {
+  async _translateItems(config, items, dstLang) {
     const keyed = {};
     items.forEach(item => { keyed[item.key] = item.text; });
 
-    let map = await this._callOpenAI(apiKey, keyed, dstLang);
+    let map = await this._callOpenAI(config, keyed, dstLang);
     const keys = Object.keys(map);
     this._logger.vlog(`Received ${keys.length} keys. Sample:`, keys.slice(0, 3).map(k => ({ id: k, text: map[k] })));
 
@@ -175,7 +179,7 @@ class TranslationService {
       const retryKeyed = {};
       for (const key of missingKeys) retryKeyed[key] = keyed[key];
       try {
-        const retryMap = await this._callOpenAI(apiKey, retryKeyed, dstLang);
+        const retryMap = await this._callOpenAI(config, retryKeyed, dstLang);
         Object.assign(map, retryMap);
         this._logger.vlog(`After retry, have ${Object.keys(map).length} keys total`);
       } catch (err) {

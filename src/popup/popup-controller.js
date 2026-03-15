@@ -158,11 +158,24 @@ class PopupController {
   }
 
   _loadAndRender() {
-    // API key status
-    browser.storage.local.get('openaiApiKey').then(r => {
+    // AI provider status
+    browser.storage.local.get(['openaiApiKey', 'aiModel', 'aiBaseUrl']).then(r => {
       const hasKey = !!(r.openaiApiKey);
-      this._statusBadge.textContent = hasKey ? 'Configured' : 'Not configured';
-      this._statusBadge.className   = hasKey ? 'badge badge-configured' : 'badge badge-unconfigured';
+      if (hasKey) {
+        const model = r.aiModel || 'gpt-4o-mini';
+        const baseUrl = (r.aiBaseUrl || '').trim().replace(/\/$/, '');
+        let provider;
+        if (baseUrl === 'https://api.x.ai/v1') {
+          provider = 'xAI';
+        } else {
+          provider = 'OpenAI';
+        }
+        this._statusBadge.textContent = `${provider} · ${model}`;
+        this._statusBadge.className   = 'badge badge-configured';
+      } else {
+        this._statusBadge.textContent = 'Not configured';
+        this._statusBadge.className   = 'badge badge-unconfigured';
+      }
     });
 
     // Translation enabled

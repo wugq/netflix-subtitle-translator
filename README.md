@@ -1,10 +1,10 @@
 # Netflix Subtitle Translator
 
-A Firefox browser extension that translates Netflix subtitles in real-time using OpenAI's GPT API. Translated subtitles are displayed in a custom overlay directly on the video player — no leaving Netflix, no switching tabs.
+A Firefox browser extension that translates Netflix subtitles in real-time using AI. Translated subtitles are displayed in a custom overlay directly on the video player — no leaving Netflix, no switching tabs.
 
 ## Features
 
-- **Real-time AI translation** using OpenAI GPT (gpt-4o-mini)
+- **Real-time AI translation** — works with OpenAI, xAI (Grok), Google Gemini, or any OpenAI-compatible endpoint
 - **Smart mode detection** — uses Netflix's native subtitles when available, falls back to AI translation
 - **Progressive buffering** — subtitles start appearing quickly while translation continues in the background
 - **Translation caching** — subtitles are cached per movie/language pair so you don't re-translate on rewatch
@@ -18,7 +18,7 @@ The extension intercepts Netflix's subtitle loading process at the browser level
 
 1. **`injected.js`** patches `JSON.parse` and `window.fetch` in Netflix's page context to capture subtitle manifest data and detect which language track is active
 2. **`content.js`** fetches and parses the subtitle files (TTML/WebVTT), determines the translation mode, and renders translated text in a custom overlay synced to the video
-3. **`background.js`** handles OpenAI API calls, batching, retry logic, and persistent caching
+3. **`background.js`** handles AI API calls, batching, retry logic, and persistent caching
 
 ### Translation Modes
 
@@ -46,11 +46,20 @@ When AI translation is needed, the extension prefers English as the source langu
 3. In Firefox, go to `about:debugging` → **This Firefox** → **Load Temporary Add-on**
 4. Select the generated `netflix-subtitle-translator.zip` or the `manifest.json` file
 
+## Supported AI Providers
+
+| Provider | Models |
+|---|---|
+| OpenAI | gpt-4o-mini, gpt-4o, gpt-4-turbo, o3-mini |
+| xAI | grok-3-mini, grok-3, grok-2 |
+
+> **Why isn't Anthropic (Claude) listed?** Anthropic's API uses a different request format and authentication scheme — it is not compatible with the OpenAI `/chat/completions` interface that this extension uses. Claude models are not supported.
+
 ## Setup
 
-1. Get an OpenAI API key from [platform.openai.com](https://platform.openai.com)
+1. Get an API key from your chosen provider
 2. Click the extension icon and open **Settings**
-3. Paste your API key and click **Save**
+3. Select your provider, choose a model, paste your API key, and click **Save**
 4. Open any Netflix video and turn on subtitles in the Netflix player
 5. Select your destination language from the extension popup
 6. Translation starts automatically
@@ -68,8 +77,8 @@ Advanced settings (lookahead window, debug logging) are available in the full op
 
 ## Privacy
 
-- Your OpenAI API key is stored only in your local browser storage
-- Subtitle text is sent only to Netflix's CDN (to fetch subtitle files) and OpenAI's API for translation
+- Your API key is stored only in your local browser storage
+- Subtitle text is sent only to Netflix's CDN (to fetch subtitle files) and your configured AI provider for translation
 - No data is collected by this extension or its developer
 
 ### Network Requests
@@ -77,7 +86,7 @@ Advanced settings (lookahead window, debug logging) are available in the full op
 | Destination | Purpose |
 |---|---|
 | `*.nflxso.net`, `*.nflxvideo.net` | Fetch subtitle files from Netflix CDN |
-| `api.openai.com` | Translate subtitles (only when AI mode is active) |
+| Your configured AI provider | Translate subtitles (only when AI mode is active) |
 
 ## Browser Support
 
@@ -87,7 +96,7 @@ Advanced settings (lookahead window, debug logging) are available in the full op
 ## Requirements
 
 - Firefox or Chrome browser
-- An OpenAI API key (usage costs apply based on OpenAI's pricing)
+- An API key from your chosen provider (usage costs vary by provider)
 
 ## License
 
