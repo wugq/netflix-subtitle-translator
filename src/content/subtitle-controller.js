@@ -277,6 +277,7 @@ class SubtitleController {
     // Same movie: tracks may have been hydrated
     if (movieId === this._currentMovieId) {
       this._availableTracks = tracks;
+      this._saveNetflixLangStatus(tracks);
       const { mode, ttmlLang } = this._determineMode();
       if (mode !== this._currentMode || ttmlLang !== this._currentTtmlLang) {
         this._logger.clog(`Tracks hydrated \u2014 mode changed: ${this._currentMode} \u2192 ${mode}`);
@@ -288,6 +289,7 @@ class SubtitleController {
     this._currentMovieId = movieId;
     this._resetStateForNewVideo();
     this._availableTracks = tracks;
+    this._saveNetflixLangStatus(tracks);
 
     this._logger.clog('Tracks received for movieId', movieId, '\u2014 langs:', tracks.map(t => t.language));
     this._setStatus('detected', `Found ${tracks.length} subtitle tracks`);
@@ -327,6 +329,20 @@ class SubtitleController {
     this._currentMode = null; this._currentTtmlLang = null; this._needsAiTranslation = false;
     this._lastWatchPageState = null;
     this._sync.stop();
+    browser.storage.local.remove('netflixLangStatus');
+  }
+
+  _saveNetflixLangStatus(tracks) {
+    const nativeAvailable = [];
+    const needsSelection  = [];
+    for (const track of tracks) {
+      if (this._findTtmlUrl([track], track.language)) {
+        nativeAvailable.push(track.language);
+      } else {
+        needsSelection.push(track.language);
+      }
+    }
+    browser.storage.local.set({ netflixLangStatus: { nativeAvailable, needsSelection } });
   }
 
   async _applyMode(tracks, mode, ttmlLang) {

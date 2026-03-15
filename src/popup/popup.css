@@ -132,6 +132,13 @@ h1 {
   border-color: #555;
 }
 
+.lang-legend {
+  font-size: 10px;
+  color: #555;
+  margin-top: 5px;
+  line-height: 1.4;
+}
+
 /* AI notice checkbox */
 .notice-panel {
   margin: 8px 14px 0;

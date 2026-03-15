@@ -125,6 +125,9 @@ class PopupController {
           }, 10000);
         }
       }
+      if (changes.netflixLangStatus) {
+        this._updateLangIndicators(changes.netflixLangStatus.newValue || null);
+      }
     });
   }
 
@@ -208,6 +211,11 @@ class PopupController {
     browser.storage.local.get('translationStatus').then(r => {
       this._renderStatus(r.translationStatus || null);
     });
+
+    // Netflix lang availability indicators
+    browser.storage.local.get('netflixLangStatus').then(r => {
+      this._updateLangIndicators(r.netflixLangStatus || null);
+    });
   }
 
   _renderStatus(status) {
@@ -226,6 +234,33 @@ class PopupController {
     } else {
       this._toggleBtn.textContent = 'Resume Translation';
       this._toggleBtn.className   = 'toggle-btn paused';
+    }
+  }
+
+  _langMatches(a, b) {
+    if (!a || !b) return false;
+    const la = a.toLowerCase(), lb = b.toLowerCase();
+    return la === lb || la.startsWith(lb + '-') || lb.startsWith(la + '-');
+  }
+
+  _updateLangIndicators(langStatus) {
+    const opts = Array.from(this._dstLangSelect.options);
+    for (const opt of opts) {
+      const base = opt.dataset.baseText || opt.textContent.replace(/ [●○]$/, '');
+      opt.dataset.baseText = base;
+
+      if (!langStatus) {
+        opt.textContent = base;
+        continue;
+      }
+      const { nativeAvailable = [], needsSelection = [] } = langStatus;
+      if (nativeAvailable.some(l => this._langMatches(l, opt.value))) {
+        opt.textContent = base + ' ●';
+      } else if (needsSelection.some(l => this._langMatches(l, opt.value))) {
+        opt.textContent = base + ' ○';
+      } else {
+        opt.textContent = base;
+      }
     }
   }
 
