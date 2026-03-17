@@ -12,6 +12,16 @@ class Logger {
     this._verboseLogging = verboseLogging;
   }
 
+  init() {
+    browser.storage.local.get('verboseLogging').then(r => {
+      this.configure(r.verboseLogging || false);
+    });
+    browser.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !changes.verboseLogging) return;
+      this.configure(changes.verboseLogging.newValue);
+    });
+  }
+
   clog() {}
 
   vlog(...args) {

@@ -171,69 +171,41 @@ class PopupController {
   }
 
   _loadAndRender() {
-    // AI provider status
-    browser.storage.local.get(['openaiApiKey', 'aiModel', 'aiBaseUrl']).then(r => {
+    browser.storage.local.get([
+      'openaiApiKey', 'aiModel', 'aiBaseUrl',
+      'translationEnabled', 'dstLang', 'showNotice', 'showOriginalText', 'subtitleStyle',
+      'subtitleFontSize', 'subtitleBottom', 'windowMinutes',
+      'translationStatus', 'netflixLangStatus',
+    ]).then(r => {
+      // AI provider status
       const hasKey = !!(r.openaiApiKey);
       if (hasKey) {
-        const model = r.aiModel || 'gpt-4o-mini';
+        const model   = r.aiModel || 'gpt-4o-mini';
         const baseUrl = (r.aiBaseUrl || '').trim().replace(/\/$/, '');
-        let provider;
-        if (baseUrl === 'https://api.x.ai/v1') {
-          provider = 'xAI';
-        } else {
-          provider = 'OpenAI';
-        }
+        const provider = baseUrl === 'https://api.x.ai/v1' ? 'xAI' : 'OpenAI';
         this._statusBadge.textContent = `${provider} · ${model}`;
         this._statusBadge.className   = 'badge badge-configured';
       } else {
         this._statusBadge.textContent = 'Not configured';
         this._statusBadge.className   = 'badge badge-unconfigured';
       }
-    });
 
-    // Translation enabled
-    browser.storage.local.get('translationEnabled').then(r => {
       this._translationEnabled = r.translationEnabled !== false;
       this._updateToggleBtn();
-    });
 
-    // Destination language
-    browser.storage.local.get('dstLang').then(r => {
       if (r.dstLang) this._dstLangSelect.value = r.dstLang;
-    });
-
-    // AI notice toggle
-    browser.storage.local.get('showNotice').then(r => {
-      this._showNoticeCheckbox.checked = r.showNotice !== false;
-    });
-
-    // Show original text toggle
-    browser.storage.local.get('showOriginalText').then(r => {
-      this._showOriginalCheckbox.checked = !!r.showOriginalText;
-    });
-
-    // Subtitle style
-    browser.storage.local.get('subtitleStyle').then(r => {
+      this._showNoticeCheckbox.checked    = r.showNotice !== false;
+      this._showOriginalCheckbox.checked  = !!r.showOriginalText;
       if (r.subtitleStyle) this._subtitleStyleSelect.value = r.subtitleStyle;
-    });
 
-    // Display settings
-    browser.storage.local.get(['subtitleFontSize', 'subtitleBottom', 'windowMinutes']).then(r => {
       this._settings.subtitleFontSize = r.subtitleFontSize ?? this._DEFAULTS.subtitleFontSize;
       this._settings.subtitleBottom   = r.subtitleBottom   ?? this._DEFAULTS.subtitleBottom;
       this._settings.windowMinutes    = r.windowMinutes    ?? this._DEFAULTS.windowMinutes;
       this._fontVal.textContent = this._settings.subtitleFontSize + 'px';
       this._posVal.textContent  = this._settings.subtitleBottom + '%';
       this._winVal.textContent  = this._settings.windowMinutes + ' min';
-    });
 
-    // Translation status
-    browser.storage.local.get('translationStatus').then(r => {
       this._renderStatus(r.translationStatus || null);
-    });
-
-    // Netflix lang availability indicators
-    browser.storage.local.get('netflixLangStatus').then(r => {
       this._updateLangIndicators(r.netflixLangStatus || null);
     });
   }

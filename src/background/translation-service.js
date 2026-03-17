@@ -4,6 +4,7 @@ class TranslationService {
   constructor(cache, logger) {
     this._cache = cache;
     this._logger = logger;
+    this._cachedConfig = null;
     this._langNames = {
       'en':      'English',
       'zh-hans': 'Simplified Chinese',
@@ -52,13 +53,19 @@ class TranslationService {
     return { ok: !!config.apiKey };
   }
 
+  invalidateConfig() {
+    this._cachedConfig = null;
+  }
+
   async _getConfig() {
+    if (this._cachedConfig) return this._cachedConfig;
     const r = await browser.storage.local.get(['openaiApiKey', 'aiModel', 'aiBaseUrl']);
-    return {
+    this._cachedConfig = {
       apiKey:  r.openaiApiKey || '',
       model:   r.aiModel || 'gpt-4o-mini',
       baseUrl: (r.aiBaseUrl || '').trim().replace(/\/$/, '') || 'https://api.openai.com/v1',
     };
+    return this._cachedConfig;
   }
 
   async _translate(msg) {
