@@ -41,7 +41,6 @@ class SubtitleController {
 
     // Status tracking (fix for undeclared lastStatus reference)
     this._lastStatus = null;
-    this._lastWatchPageState = null;
 
     // PlaybackSync wired with state callbacks
     this._sync = new PlaybackSync(
@@ -336,7 +335,6 @@ class SubtitleController {
     this._store.reset();
     this._nextWindowStart = 0; this._rollingWindowEnd = 0;
     this._currentMode = null; this._currentTtmlLang = null; this._needsAiTranslation = false;
-    this._lastWatchPageState = null;
     this._sync.stop();
     browser.storage.local.remove('netflixLangStatus');
   }
@@ -410,7 +408,13 @@ class SubtitleController {
     const keyCheck = await browser.runtime.sendMessage({ type: 'checkApiKey' });
     if (signal.aborted) return false;
     if (!keyCheck?.ok) {
-      this._setStatus('error', 'No API key \u2014 open extension settings');
+      if (this._findTtmlUrl(this._availableTracks, this._dstLang)) {
+        this._onLanguageChanged('no-key-native-fallback');
+      } else {
+        const msg = 'No API key \u2014 open extension settings';
+        this._setStatus('error', msg);
+        if (this._showNotice) this._overlay.showFlash(msg);
+      }
       return false;
     }
 
@@ -495,10 +499,29 @@ class SubtitleController {
       this._setModeStatus(this._currentMode);
       return;
     }
+
+    // Reserve the rolling window slot synchronously (before any await) so the
+    // tick cannot fire duplicate rolling windows while the key check is in-flight.
     const duration = this._sync.videoEl?.duration || Infinity;
     const windowEnd = Math.min(startTime + this._windowMinutes * 60, duration);
-
     this._rollingWindowEnd = windowEnd;
+
+    // Check API key before showing the "AI translation active" notice —
+    // avoids a misleading flash when no key is configured.
+    const keyCheck = await browser.runtime.sendMessage({ type: 'checkApiKey' });
+    if (signal.aborted) return;
+    if (!keyCheck?.ok) {
+      // If the dst lang is now natively available (e.g. tracks hydrated since
+      // _determineMode ran), switch to native mode instead of showing an error.
+      if (this._findTtmlUrl(this._availableTracks, this._dstLang)) {
+        this._onLanguageChanged('no-key-native-fallback');
+      } else {
+        const msg = 'No API key \u2014 open extension settings';
+        this._setStatus('error', msg);
+        if (this._showNotice) this._overlay.showFlash(msg);
+      }
+      return;
+    }
 
     try {
       const msg = flashMsg || 'AI translation active \u2014 uses AI tokens';
@@ -517,7 +540,10 @@ class SubtitleController {
         if (prev >= windowEnd) break;
       }
     } finally {
-      if (this._nextWindowStart < windowEnd) {
+      // Only let the active session hand off to the tick's rolling window.
+      // Aborted (cancelled) sessions must not reset rollingWindowEnd, as that
+      // would undo what the newly-active session already set synchronously.
+      if (!signal.aborted && this._nextWindowStart < windowEnd) {
         this._rollingWindowEnd = this._nextWindowStart;
       }
     }

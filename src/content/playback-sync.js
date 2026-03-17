@@ -103,14 +103,12 @@ class PlaybackSync {
       const duration = this._videoEl?.duration || Infinity;
       const wEnd = Math.min(state.nextWindowStart + state.windowMinutes * 60, duration);
 
-      if (wEnd > state.nextWindowStart) {
+      const signal = state.signal;
+      if (wEnd > state.nextWindowStart && signal && !signal.aborted) {
         this._cbs.book(wEnd);
         this._logger.vlog(`Rolling window triggered: ${this._fmt(state.nextWindowStart)} → ${this._fmt(wEnd)} (at ${this._fmt(t)})`);
-        const signal = state.signal;
-        if (signal && !signal.aborted) {
-          this._cbs.translate(state.nextWindowStart, wEnd, signal)
-            .catch(() => { this._cbs.book(0); });
-        }
+        this._cbs.translate(state.nextWindowStart, wEnd, signal)
+          .catch(() => { this._cbs.book(0); });
       }
     }
 

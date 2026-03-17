@@ -1,12 +1,11 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Netflix Subtitle Translator",
   "version": "1.3",
   "description": "Translates Netflix subtitles to your preferred language using AI. Supports 18 languages including Chinese, Japanese, Korean, Spanish, French, German, and more.",
   "author": "wugq.dev",
-  "permissions": [
-    "storage",
-    "tabs",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
     "*://www.netflix.com/*",
     "*://*.nflxvideo.net/*",
     "*://*.nflxso.net/*",
@@ -14,7 +13,7 @@
     "https://api.openai.com/*",
     "https://api.x.ai/*"
   ],
-  "browser_action": {
+  "action": {
     "default_title": "Netflix Subtitle Translator",
     "default_popup": "src/popup/popup.html",
     "default_icon": {
@@ -28,15 +27,14 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "web_accessible_resources": ["src/injected.js"],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/injected.js"],
+      "matches": ["*://www.netflix.com/*"]
+    }
+  ],
   "background": {
-    "scripts": [
-      "src/background/logger.js",
-      "src/background/translation-cache.js",
-      "src/background/translation-service.js",
-      "src/background/main.js"
-    ],
-    "persistent": true
+    "service_worker": "src/background/service-worker.js"
   },
   "content_scripts": [
     {
@@ -59,18 +57,5 @@
   "options_ui": {
     "page": "src/options/options.html",
     "open_in_tab": true
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "netflix-subtitle-translator@extension",
-      "strict_min_version": "140.0",
-      "data_collection_permissions": {
-        "required": ["websiteContent"],
-        "optional": []
-      }
-    },
-    "gecko_android": {
-      "strict_min_version": "142.0"
-    }
   }
 }

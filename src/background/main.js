@@ -17,4 +17,13 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-browser.runtime.onMessage.addListener(msg => _service.handleMessage(msg));
+browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  const result = _service.handleMessage(msg);
+  if (result && typeof result.then === 'function') {
+    // Chrome MV3: returning a Promise does not keep the port open.
+    // Must return true synchronously and call sendResponse when done.
+    result.then(sendResponse).catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+  // No response needed (e.g. 'log' messages)
+});

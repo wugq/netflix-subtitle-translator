@@ -33,6 +33,12 @@ class Logger {
     const line = `${new Date().toISOString()} [${source}] ${message}`;
     const r = await browser.storage.local.get(this._logKey);
     const arr = Array.isArray(r[this._logKey]) ? r[this._logKey] : [];
+    // Skip consecutive duplicate messages (same source + text, ignoring timestamp).
+    if (arr.length > 0) {
+      const prev = arr[arr.length - 1];
+      const prevMsg = prev.slice(prev.indexOf('] ') + 2);
+      if (prevMsg === message && prev.includes(`[${source}]`)) return;
+    }
     arr.push(line.length > 2000 ? line.slice(0, 2000) + '\u2026' : line);
     if (arr.length > this._maxLogItems) arr.splice(0, arr.length - this._maxLogItems);
     await browser.storage.local.set({ [this._logKey]: arr });
