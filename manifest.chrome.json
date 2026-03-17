@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Netflix Subtitle Translator",
   "version": "1.3",
-  "description": "Translates Netflix subtitles to your preferred language using AI. Supports 18 languages including Chinese, Japanese, Korean, Spanish, French, German, and more.",
+  "description": "Translates Netflix subtitles using AI. Supports 19 languages including Chinese, Japanese, Korean, Spanish, French, German, and more.",
   "author": "wugq.dev",
   "permissions": ["storage", "tabs"],
   "host_permissions": [
