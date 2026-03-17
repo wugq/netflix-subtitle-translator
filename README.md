@@ -12,7 +12,7 @@ A Firefox browser extension that translates Netflix subtitles in real-time using
 - **Dual subtitles** — optionally show the original source text below the translation for comparison
 - **Customizable display** — adjust font size, vertical position, and subtitle style (Classic, Shadow, Yellow)
 - **Language availability indicators** — the popup shows which destination languages Netflix has natively (●), which need selecting in Netflix first (○), and which require AI (✦)
-- **18 supported languages** — Chinese (Simplified & Traditional), Japanese, Korean, Spanish, French, German, Portuguese, Italian, Russian, Arabic, Hindi, Thai, Vietnamese, Indonesian, Dutch, Polish, Turkish
+- **19 supported languages** — English, Chinese (Simplified & Traditional), Japanese, Korean, Spanish, French, German, Portuguese, Italian, Russian, Arabic, Hindi, Thai, Vietnamese, Indonesian, Dutch, Polish, Turkish
 
 ## How It Works
 
@@ -92,8 +92,8 @@ Advanced settings (lookahead window, clear cache, debug logging) are available i
 
 ## Browser Support
 
-- **Firefox** (primary)
-- **Chrome** (secondary, manifest v2 with polyfill)
+- **Firefox** (primary, MV2)
+- **Chrome** (MV3, via separate manifest)
 
 ## Requirements
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3
+
+**New features**
+
+- **Chrome MV3 support** — extension now works on Chrome via a separate MV3 manifest and service worker
+
+**Bug fixes**
+
+- Fixed rolling window firing duplicate translation requests on playback start
+- Fixed cancelled sessions interfering with the active session's window state
+- Fixed browser polyfill incorrectly promisifying `getURL`/`getManifest`, and now resolves gracefully on closed port errors instead of rejecting
+- Fixed `onMessage` handler for Chrome MV3 async responses
+- Show flash notice and error status when no API key is configured
+- Fall back to native subtitles when API key is missing but Netflix provides the destination language natively
+- Added consecutive duplicate deduplication in the background logger
+
+---
+
 ## 1.2
 
 **New features**
