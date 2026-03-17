@@ -38,6 +38,7 @@ class OptionsController {
 
     this._logOutput     = document.getElementById('logOutput');
     this._logCount      = document.getElementById('logCount');
+    this._logStatusEl   = document.getElementById('logStatus');
     this._copyLogsBtn   = document.getElementById('copyLogs');
     this._clearLogsBtn  = document.getElementById('clearLogs');
     this._refreshLogsBtn = document.getElementById('refreshLogs');
@@ -104,19 +105,19 @@ class OptionsController {
 
     this._copyLogsBtn.addEventListener('click', async () => {
       const text = this._logOutput.value || '';
-      if (!text) { this._showStatus('No logs to copy.', 'info'); return; }
+      if (!text) { this._showLogStatus('No logs to copy.', 'info'); return; }
       try {
         await navigator.clipboard.writeText(text);
-        this._showStatus('Logs copied to clipboard.', 'success');
+        this._showLogStatus('Logs copied to clipboard.', 'success');
       } catch (err) {
-        this._showStatus(`Copy failed: ${err.message}`, 'error');
+        this._showLogStatus(`Copy failed: ${err.message}`, 'error');
       }
     });
 
     this._clearLogsBtn.addEventListener('click', async () => {
       await browser.storage.local.set({ [this._LOG_KEY]: [] });
       this._renderLogs([]);
-      this._showStatus('Logs cleared.', 'success');
+      this._showLogStatus('Logs cleared.', 'success');
     });
 
     this._refreshLogsBtn.addEventListener('click', () => this._loadLogs());
@@ -193,6 +194,15 @@ class OptionsController {
     this._cacheStatusEl.classList.remove('hidden');
     if (type === 'success' || type === 'info') {
       setTimeout(() => this._cacheStatusEl.classList.add('hidden'), 4000);
+    }
+  }
+
+  _showLogStatus(message, type) {
+    this._logStatusEl.textContent = message;
+    this._logStatusEl.className = `status ${type}`;
+    this._logStatusEl.classList.remove('hidden');
+    if (type === 'success' || type === 'info') {
+      setTimeout(() => this._logStatusEl.classList.add('hidden'), 4000);
     }
   }
 }
