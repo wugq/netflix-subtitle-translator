@@ -12,6 +12,17 @@ class SubtitleController {
     this._store   = new SegmentStore();
     this._overlay = new SubtitleOverlay();
 
+    // Extracted helpers
+    this._trackResolver = new TrackResolver();
+    this._loader        = new TtmlLoader(this._logger, (state, msg) => this._setStatus(state, msg));
+    this._settings      = new SettingsManager(this._logger, {
+      onStyleChanged:              (fontSize, bottom, style) => this._overlay.applyStyle(fontSize, bottom, style),
+      onTranslationEnabledChanged: (enabled) => this._bus.emit('settings:translationEnabled', { enabled }),
+      onDstLangChanged:            () => this._onLanguageChanged('dstLang'),
+      onVerboseLoggingChanged:     (verbose) => this._logger.configure(verbose),
+    });
+    this._nav = new NavigationWatcher(this._logger);
+
     // Manifest cache keyed by movieId — content script can't read window.__NST_LAST_MANIFEST__
     // because injected.js runs in the page's JS world (isolated from the content script world)
     this._manifestCache = {};
@@ -19,7 +30,6 @@ class SubtitleController {
     // Movie lifecycle state
     this._currentMovieId      = null;
     this._srcLang             = 'en';
-    this._dstLang             = 'zh-Hans';
     this._availableTracks     = [];
     this._currentMode         = null;
     this._currentTtmlLang     = null;
@@ -30,16 +40,7 @@ class SubtitleController {
     this._rollingWindowEnd = 0;
     this._aiRequestSeq    = 0;
 
-    // Settings
-    this._windowMinutes       = 5;
-    this._subtitleFontSize    = 24;
-    this._subtitleBottom      = 8;
-    this._subtitleStyle       = 'classic';
-    this._translationEnabled  = true;
-    this._showNotice          = true;
-    this._showOriginalText    = false;
-
-    // Status tracking (fix for undeclared lastStatus reference)
+    // Status tracking
     this._lastStatus = null;
 
     // PlaybackSync wired with state callbacks
@@ -73,60 +74,11 @@ class SubtitleController {
       this._setStatus('idle', 'Waiting for a video to play\u2026');
     }
 
-    // Load persisted settings
-    browser.storage.local.get([
-      'subtitleFontSize', 'subtitleBottom', 'subtitleStyle', 'windowMinutes', 'translationEnabled', 'dstLang',
-      'showNotice', 'verboseLogging', 'showOriginalText',
-    ]).then(r => {
-      if (r.subtitleFontSize   != null) this._subtitleFontSize   = r.subtitleFontSize;
-      if (r.subtitleBottom     != null) this._subtitleBottom     = r.subtitleBottom;
-      if (r.subtitleStyle      != null) this._subtitleStyle      = r.subtitleStyle;
-      if (r.windowMinutes      != null) this._windowMinutes      = r.windowMinutes;
-      if (r.translationEnabled != null) this._translationEnabled = r.translationEnabled;
-      if (r.dstLang            != null) this._dstLang            = r.dstLang;
-      if (r.showNotice         != null) this._showNotice         = r.showNotice;
-      if (r.showOriginalText   != null) this._showOriginalText   = r.showOriginalText;
-      if (r.verboseLogging     != null) {
-        this._logger.configure(r.verboseLogging);
-      }
-      this._overlay.applyStyle(this._subtitleFontSize, this._subtitleBottom, this._subtitleStyle);
-    });
-
-    browser.storage.onChanged.addListener((changes, area) => {
-      if (area !== 'local') return;
-      let styleChanged = false;
-      if ('subtitleFontSize' in changes) { this._subtitleFontSize = changes.subtitleFontSize.newValue; styleChanged = true; }
-      if ('subtitleBottom'   in changes) { this._subtitleBottom   = changes.subtitleBottom.newValue;   styleChanged = true; }
-      if ('subtitleStyle'    in changes) { this._subtitleStyle    = changes.subtitleStyle.newValue;    styleChanged = true; }
-      if ('windowMinutes'      in changes) this._windowMinutes      = changes.windowMinutes.newValue;
-      if ('translationEnabled' in changes) {
-        this._translationEnabled = changes.translationEnabled.newValue;
-        this._bus.emit('settings:translationEnabled', { enabled: this._translationEnabled });
-      }
-      if ('dstLang' in changes) {
-        this._dstLang = changes.dstLang.newValue;
-        this._onLanguageChanged('dstLang');
-      }
-      if ('showNotice'       in changes) this._showNotice       = changes.showNotice.newValue;
-      if ('showOriginalText' in changes) this._showOriginalText = changes.showOriginalText.newValue;
-      if ('verboseLogging' in changes) {
-        this._logger.configure(changes.verboseLogging.newValue);
-      }
-      if (styleChanged) {
-        this._overlay.applyStyle(this._subtitleFontSize, this._subtitleBottom, this._subtitleStyle);
-      }
-    });
+    this._settings.load();
 
     this._wireEventBus();
     this._listenInjected();
-    this._listenNavigation();
 
-    // Note: window.__NST_LAST_MANIFEST__ is set by injected.js which runs in the page's
-    // JS world (isolated from the content script world), so it is not readable here.
-    // Manifests are captured via the nst_tracks DOM event and stored in this._manifestCache.
-  }
-
-  _listenNavigation() {
     // Netflix is a SPA. The manifest for the next video fires BEFORE the URL changes,
     // so _handleTracks bails on the pre-fetch guard. When the URL finally updates we
     // re-check our manifest cache (keyed by movieId) to process the right one.
@@ -134,7 +86,6 @@ class SubtitleController {
     // We cannot rely solely on history.pushState/replaceState patching because Netflix
     // sometimes navigates without triggering those (no pushState log observed in traces).
     // URL polling at 200ms is used as a reliable fallback.
-
     const onNav = () => {
       const urlMovieId = this._getMovieIdFromUrl();
       const cachedIds  = Object.keys(this._manifestCache);
@@ -156,27 +107,11 @@ class SubtitleController {
         this._logger.clog(`onNav — no cached manifest for urlMovieId=${urlMovieId}`);
       }
     };
+    this._nav.start(onNav);
 
-    // Intercept history API (catches some navigations)
-    window.addEventListener('popstate', () => setTimeout(onNav, 50));
-    const wrap = (name, orig) => (...args) => {
-      const result = orig.apply(history, args);
-      this._logger.clog(`${name} → ${args[2] ?? '(no url)'}`);
-      setTimeout(onNav, 50);
-      return result;
-    };
-    history.pushState    = wrap('pushState',    history.pushState);
-    history.replaceState = wrap('replaceState', history.replaceState);
-
-    // Poll URL as fallback — catches navigations not via pushState/replaceState
-    let _lastUrl = location.href;
-    setInterval(() => {
-      if (location.href !== _lastUrl) {
-        this._logger.clog(`URL poll detected change: ${_lastUrl} → ${location.href}`);
-        _lastUrl = location.href;
-        onNav();
-      }
-    }, 200);
+    // Note: window.__NST_LAST_MANIFEST__ is set by injected.js which runs in the page's
+    // JS world (isolated from the content script world), so it is not readable here.
+    // Manifests are captured via the nst_tracks DOM event and stored in this._manifestCache.
   }
 
   _wireEventBus() {
@@ -184,7 +119,7 @@ class SubtitleController {
       this._queue.push(async () => {
         if (!this._isOnWatchPage() || !this._currentMovieId || !this._availableTracks.length) return;
         this._logger.clog(`lang:changed (${reason}) — re-applying mode`);
-        const { mode, ttmlLang, dstNotLoaded } = this._determineMode();
+        const { mode, ttmlLang, dstNotLoaded } = this._trackResolver.determineMode(this._srcLang, this._settings.dstLang, this._availableTracks);
         this._session.cancel();
         const ok = await this._applyMode(this._availableTracks, mode, ttmlLang);
         if (!ok) return;
@@ -193,11 +128,11 @@ class SubtitleController {
 
         const t = this._sync.videoEl?.currentTime ?? 0;
         this._nextWindowStart = t; this._rollingWindowEnd = 0;
-        if (this._needsAiTranslation && this._translationEnabled && this._canTranslateNow()) {
+        if (this._needsAiTranslation && this._settings.translationEnabled && this._canTranslateNow()) {
           const signal = this._session.start();
           this._initialTranslation(
             t,
-            dstNotLoaded ? `"${this._langLabel(this._dstLang)}" subtitle isn't loaded by Netflix yet \u2014 using AI translation instead` : null,
+            dstNotLoaded ? `"${this._trackResolver.langLabel(this._settings.dstLang, this._availableTracks)}" subtitle isn't loaded by Netflix yet \u2014 using AI translation instead` : null,
             signal
           );
         } else {
@@ -208,21 +143,21 @@ class SubtitleController {
 
     this._bus.on('playback:seeked', ({ time }) => {
       this._nextWindowStart = time; this._rollingWindowEnd = 0;
-      if (this._needsAiTranslation && this._translationEnabled && this._canTranslateNow()) {
+      if (this._needsAiTranslation && this._settings.translationEnabled && this._canTranslateNow()) {
         this._logger.clog(`playback:seeked → ${this._fmt(time)}, starting translation`);
         this._initialTranslation(time, null, this._session.start());
       } else {
-        this._logger.clog(`playback:seeked → ${this._fmt(time)}, no translation (needsAi=${this._needsAiTranslation} enabled=${this._translationEnabled})`);
+        this._logger.clog(`playback:seeked → ${this._fmt(time)}, no translation (needsAi=${this._needsAiTranslation} enabled=${this._settings.translationEnabled})`);
       }
     });
 
     this._bus.on('playback:play', ({ time }) => {
       this._nextWindowStart = time;
-      if (this._needsAiTranslation && this._translationEnabled) {
+      if (this._needsAiTranslation && this._settings.translationEnabled) {
         this._logger.clog(`playback:play at ${this._fmt(time)}, starting translation`);
         this._initialTranslation(time, null, this._session.start());
       } else {
-        this._logger.clog(`playback:play at ${this._fmt(time)}, no translation (needsAi=${this._needsAiTranslation} enabled=${this._translationEnabled})`);
+        this._logger.clog(`playback:play at ${this._fmt(time)}, no translation (needsAi=${this._needsAiTranslation} enabled=${this._settings.translationEnabled})`);
         this._setModeStatus(this._currentMode);
       }
     });
@@ -257,9 +192,8 @@ class SubtitleController {
       this._logger.clog(`Src lang detected: ${this._srcLang} \u2192 ${lang}`);
       this._srcLang = lang;
 
-      // Fix: use this._lastStatus instead of undeclared lastStatus
       if (this._lastStatus?.state === 'done') {
-        this._setStatus('done', `Using ${this._langLabel(this._srcLang)} as source`);
+        this._setStatus('done', `Using ${this._trackResolver.langLabel(this._srcLang, this._availableTracks)} as source`);
       }
 
       this._onLanguageChanged('srcLang');
@@ -286,7 +220,7 @@ class SubtitleController {
     if (movieId === this._currentMovieId) {
       this._availableTracks = tracks;
       this._saveNetflixLangStatus(tracks);
-      const { mode, ttmlLang } = this._determineMode();
+      const { mode, ttmlLang } = this._trackResolver.determineMode(this._srcLang, this._settings.dstLang, this._availableTracks);
       if (mode !== this._currentMode || ttmlLang !== this._currentTtmlLang) {
         this._logger.clog(`Tracks hydrated \u2014 mode changed: ${this._currentMode} \u2192 ${mode}`);
         this._onLanguageChanged('hydration');
@@ -303,7 +237,7 @@ class SubtitleController {
     this._setStatus('detected', `Found ${tracks.length} subtitle tracks`);
 
     this._queue.push(async () => {
-      const { mode, ttmlLang, dstNotLoaded } = this._determineMode();
+      const { mode, ttmlLang, dstNotLoaded } = this._trackResolver.determineMode(this._srcLang, this._settings.dstLang, this._availableTracks);
       const ok = await this._applyMode(tracks, mode, ttmlLang);
       if (!ok) return;
 
@@ -317,9 +251,9 @@ class SubtitleController {
       this._sync.videoEl = document.querySelector('video');
       this._nextWindowStart = startTime;
 
-      if (this._needsAiTranslation && this._translationEnabled) {
+      if (this._needsAiTranslation && this._settings.translationEnabled) {
         const flashMsg = dstNotLoaded
-          ? `"${this._langLabel(this._dstLang)}" subtitle isn't loaded by Netflix yet \u2014 using AI translation instead`
+          ? `"${this._trackResolver.langLabel(this._settings.dstLang, this._availableTracks)}" subtitle isn't loaded by Netflix yet \u2014 using AI translation instead`
           : 'AI translation active \u2014 uses AI tokens';
         const signal = this._session.start();
         this._initialTranslation(startTime, flashMsg, signal);
@@ -343,7 +277,7 @@ class SubtitleController {
     const nativeAvailable = [];
     const needsSelection  = [];
     for (const track of tracks) {
-      if (this._findTtmlUrl([track], track.language)) {
+      if (this._trackResolver.findTtmlUrl([track], track.language)) {
         nativeAvailable.push(track.language);
       } else {
         needsSelection.push(track.language);
@@ -354,13 +288,13 @@ class SubtitleController {
 
   async _applyMode(tracks, mode, ttmlLang) {
     this._logger.clog(`Applying mode=${mode} ttmlLang=${ttmlLang}`);
-    const segments = await this._fetchSegments(tracks, ttmlLang);
+    const segments = await this._loader.load(tracks, ttmlLang, this._trackResolver);
     if (!segments) return false;
 
     this._store.load(segments);
 
     try {
-      const res = await browser.runtime.sendMessage({ type: 'getCache', movieId: this._currentMovieId, dstLang: this._dstLang });
+      const res = await browser.runtime.sendMessage({ type: 'getCache', movieId: this._currentMovieId, dstLang: this._settings.dstLang });
       if (res?.ok && res.translations) {
         const count = this._store.applyTranslations(segments.map((_, i) => i), res.translations);
         if (count > 0) this._logger.clog(`Hydrated ${count} translations from cache`);
@@ -375,32 +309,6 @@ class SubtitleController {
     return true;
   }
 
-  async _fetchSegments(tracks, langCode) {
-    const url = this._findTtmlUrl(tracks, langCode);
-    if (!url) {
-      this._setStatus('error', `No subtitle track for "${langCode}"`);
-      return null;
-    }
-    let xml;
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      xml = await res.text();
-    } catch (err) {
-      this._setStatus('error', 'Fetch failed: ' + err.message);
-      return null;
-    }
-    try {
-      const segs = TtmlParser.parse(xml);
-      if (!segs.length) { this._setStatus('error', 'No subtitle segments found'); return null; }
-      this._logger.vlog('TTML parsed', segs.length, 'segments');
-      return segs;
-    } catch (err) {
-      this._setStatus('error', 'TTML parse failed: ' + err.message);
-      return null;
-    }
-  }
-
   async _translateWindow(fromTime, toTime, signal) {
     if (!this._canTranslateNow()) return false;
     if (signal.aborted) return false;
@@ -408,12 +316,12 @@ class SubtitleController {
     const keyCheck = await browser.runtime.sendMessage({ type: 'checkApiKey' });
     if (signal.aborted) return false;
     if (!keyCheck?.ok) {
-      if (this._findTtmlUrl(this._availableTracks, this._dstLang)) {
+      if (this._trackResolver.findTtmlUrl(this._availableTracks, this._settings.dstLang)) {
         this._onLanguageChanged('no-key-native-fallback');
       } else {
         const msg = 'No API key \u2014 open extension settings';
         this._setStatus('error', msg);
-        if (this._showNotice) this._overlay.showFlash(msg);
+        if (this._settings.showNotice) this._overlay.showFlash(msg);
       }
       return false;
     }
@@ -421,7 +329,7 @@ class SubtitleController {
     this._logger.clog(`Translating window ${this._fmt(fromTime)} \u2192 ${this._fmt(toTime)}`);
     const videoEl = this._sync.videoEl;
     const nowFmt = () => videoEl ? this._fmt(videoEl.currentTime) : this._fmt(fromTime);
-    const srcLabel = this._langLabel(this._srcLang);
+    const srcLabel = this._trackResolver.langLabel(this._srcLang, this._availableTracks);
 
     const pending = this._store.pendingIndices(fromTime, toTime);
 
@@ -446,14 +354,14 @@ class SubtitleController {
       try {
         this._logger.vlog('AI batch request', {
           movieId: this._currentMovieId,
-          dstLang: this._dstLang,
+          dstLang: this._settings.dstLang,
           requestId,
           indices: slice,
           count: items.length,
           first3: items.slice(0, 3),
         });
         response = await browser.runtime.sendMessage({
-          type: 'translate', items, dstLang: this._dstLang, movieId: this._currentMovieId, requestId,
+          type: 'translate', items, dstLang: this._settings.dstLang, movieId: this._currentMovieId, requestId,
         });
       } catch (err) {
         this._setStatus('error', 'Background error: ' + err.message);
@@ -503,7 +411,7 @@ class SubtitleController {
     // Reserve the rolling window slot synchronously (before any await) so the
     // tick cannot fire duplicate rolling windows while the key check is in-flight.
     const duration = this._sync.videoEl?.duration || Infinity;
-    const windowEnd = Math.min(startTime + this._windowMinutes * 60, duration);
+    const windowEnd = Math.min(startTime + this._settings.windowMinutes * 60, duration);
     this._rollingWindowEnd = windowEnd;
 
     // Check API key before showing the "AI translation active" notice —
@@ -513,12 +421,12 @@ class SubtitleController {
     if (!keyCheck?.ok) {
       // If the dst lang is now natively available (e.g. tracks hydrated since
       // _determineMode ran), switch to native mode instead of showing an error.
-      if (this._findTtmlUrl(this._availableTracks, this._dstLang)) {
+      if (this._trackResolver.findTtmlUrl(this._availableTracks, this._settings.dstLang)) {
         this._onLanguageChanged('no-key-native-fallback');
       } else {
         const msg = 'No API key \u2014 open extension settings';
         this._setStatus('error', msg);
-        if (this._showNotice) this._overlay.showFlash(msg);
+        if (this._settings.showNotice) this._overlay.showFlash(msg);
       }
       return;
     }
@@ -526,7 +434,7 @@ class SubtitleController {
     try {
       const msg = flashMsg || 'AI translation active \u2014 uses AI tokens';
       this._setStatus('ai_notice', msg);
-      if (this._showNotice) this._overlay.showFlash(msg);
+      if (this._settings.showNotice) this._overlay.showFlash(msg);
 
       const stages = [startTime + 30, startTime + 120, windowEnd];
       let prev = startTime;
@@ -556,9 +464,9 @@ class SubtitleController {
       currentMovieId:   this._currentMovieId,
       currentMode:      this._currentMode,
       needsAiTranslation: this._needsAiTranslation,
-      translationEnabled: this._translationEnabled,
+      translationEnabled: this._settings.translationEnabled,
       srcLang:          this._srcLang,
-      dstLang:          this._dstLang,
+      dstLang:          this._settings.dstLang,
       nextWindowStart:  this._nextWindowStart,
       rollingWindowEnd: this._rollingWindowEnd,
       sessionAborted:   this._session.signal?.aborted ?? null,
@@ -594,27 +502,15 @@ class SubtitleController {
     this._bus.emit('lang:changed', { reason });
   }
 
-  _determineMode() {
-    if (this._langMatches(this._srcLang, this._dstLang)) {
-      return { mode: 'passthrough', ttmlLang: this._srcLang };
-    }
-    if (this._findTtmlUrl(this._availableTracks, this._dstLang)) {
-      return { mode: 'native', ttmlLang: this._dstLang };
-    }
-    const dstListed = this._availableTracks.some(t => this._langMatches(t.language, this._dstLang));
-    const ttmlLang  = this._findTtmlUrl(this._availableTracks, 'en') ? 'en' : this._srcLang;
-    return { mode: 'ai', ttmlLang, dstNotLoaded: dstListed };
-  }
-
   _readSyncState() {
     return {
       needsAiTranslation: this._needsAiTranslation,
-      translationEnabled: this._translationEnabled,
+      translationEnabled: this._settings.translationEnabled,
       nextWindowStart:    this._nextWindowStart,
       rollingWindowEnd:   this._rollingWindowEnd,
-      windowMinutes:      this._windowMinutes,
+      windowMinutes:      this._settings.windowMinutes,
       signal:             this._session.signal,
-      showOriginalText:   this._showOriginalText,
+      showOriginalText:   this._settings.showOriginalText,
     };
   }
 
@@ -650,47 +546,6 @@ class SubtitleController {
   _getMovieIdFromUrl() {
     const m = location.pathname.match(/\/watch\/(\d+)/);
     return m ? m[1] : null;
-  }
-
-  _langMatches(a, b) {
-    if (!a || !b) return false;
-    const la = a.toLowerCase(), lb = b.toLowerCase();
-    return la === lb || la.startsWith(lb + '-') || lb.startsWith(la + '-');
-  }
-
-  _langLabel(code) {
-    if (!code) return 'Source';
-    const track = this._availableTracks.find(t => this._langMatches(t.language, code));
-    return track?.languageDescription || code;
-  }
-
-  _findTtmlUrl(tracks, langCode) {
-    const FORMATS = ['imsc1.1', 'dfxp-ls-sdh', 'simplesdh', 'nflx-cmisc', 'dfxp'];
-    const candidates = tracks.filter(t => this._langMatches(t.language, langCode));
-    if (!candidates.length) return null;
-
-    function firstHttps(obj) {
-      if (typeof obj === 'string' && obj.startsWith('https://')) return obj;
-      if (obj && typeof obj === 'object') {
-        for (const v of Object.values(obj)) {
-          const found = firstHttps(v);
-          if (found) return found;
-        }
-      }
-      return null;
-    }
-
-    for (const track of candidates) {
-      const dl = track.ttDownloadables;
-      if (!dl) continue;
-      for (const fmt of FORMATS) {
-        const entry = dl[fmt];
-        if (!entry) continue;
-        const url = firstHttps(entry.downloadUrls || entry.urls || entry);
-        if (url) return url;
-      }
-    }
-    return null;
   }
 
   _fmt(s) {

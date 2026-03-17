@@ -51,6 +51,10 @@
         "src/content/ttml-parser.js",
         "src/content/subtitle-overlay.js",
         "src/content/playback-sync.js",
+        "src/content/track-resolver.js",
+        "src/content/ttml-loader.js",
+        "src/content/settings-manager.js",
+        "src/content/navigation-watcher.js",
         "src/content/subtitle-controller.js"
       ],
       "run_at": "document_start"
