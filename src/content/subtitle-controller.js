@@ -179,7 +179,11 @@ class SubtitleController {
       try { payload = JSON.parse(e.detail); } catch (_) { return; }
       // Cache by movieId — Netflix fires the next video's manifest before the URL changes,
       // so we must not let a later manifest overwrite an earlier one we still need.
-      if (payload.movieId) this._manifestCache[payload.movieId] = payload.tracks;
+      if (payload.movieId) {
+        this._manifestCache[payload.movieId] = payload.tracks;
+        const ids = Object.keys(this._manifestCache);
+        if (ids.length > 5) delete this._manifestCache[ids[0]];
+      }
       this._handleTracks(payload.movieId, payload.tracks);
     });
 
