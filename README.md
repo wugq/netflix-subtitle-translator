@@ -36,7 +36,7 @@ When AI translation is needed, the extension prefers English as the source langu
 
 ### From Firefox Add-ons (AMO)
 
-*Coming soon — submission in progress.*
+Install from [Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/netflix-subtitle-translator/).
 
 ### Manual Installation (Developer Mode)
 
