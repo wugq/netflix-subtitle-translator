@@ -7,6 +7,7 @@
   "permissions": [
     "storage",
     "tabs",
+    "contextMenus",
     "*://www.netflix.com/*",
     "*://*.nflxvideo.net/*",
     "*://*.nflxso.net/*",
@@ -34,7 +35,8 @@
       "src/background/logger.js",
       "src/background/translation-cache.js",
       "src/background/translation-service.js",
-      "src/background/main.js"
+      "src/background/main.js",
+      "src/background/context-menu.js"
     ],
     "persistent": true
   },

@@ -4,5 +4,6 @@ importScripts(
   'logger.js',
   'translation-cache.js',
   'translation-service.js',
-  'main.js'
+  'main.js',
+  'context-menu.js'
 );

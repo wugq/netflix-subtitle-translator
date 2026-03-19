@@ -4,7 +4,7 @@
   "version": "1.3",
   "description": "Translates Netflix subtitles using AI. Supports 19 languages including Chinese, Japanese, Korean, Spanish, French, German, and more.",
   "author": "wugq.dev",
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage", "tabs", "contextMenus"],
   "host_permissions": [
     "*://www.netflix.com/*",
     "*://*.nflxvideo.net/*",
