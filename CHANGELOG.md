@@ -10,6 +10,10 @@
 - Fixed ghost retry in `PlaybackSync` when `stop()` races a pending `setTimeout`
 - Fixed `_waitForPlaybackStart` missing play events — replaced polling with `play`/`playing` event listeners
 
+**Refactoring**
+
+- Renamed `manifest.json` to `manifest.firefox.json` to match the `manifest.chrome.json` naming pattern
+
 **Documentation**
 
 - Added architecture reference ([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)) covering execution contexts, class map, data flow, and SPA navigation
