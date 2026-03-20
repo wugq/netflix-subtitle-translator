@@ -4,7 +4,6 @@
 (function () {
   'use strict';
 
-  // Map of subtitle URL → language code, rebuilt on each new movie manifest
   const urlToLang = {};
 
   // Map of movieId → tracks, kept across navigations so the content script can
@@ -56,7 +55,6 @@
       ) {
         const tracks = data.result.timedtexttracks;
 
-        // Rebuild URL→lang map for the new movie
         for (const key of Object.keys(urlToLang)) delete urlToLang[key];
         for (const track of tracks) extractUrls(track);
 

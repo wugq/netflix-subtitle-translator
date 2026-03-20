@@ -152,7 +152,6 @@ class PopupController {
       'subtitleFontSize', 'subtitleBottom', 'windowMinutes',
       'translationStatus', 'netflixLangStatus',
     ]).then(r => {
-      // AI provider status
       const hasKey = !!(r.openaiApiKey);
       if (hasKey) {
         const model   = r.aiModel || 'gpt-4o-mini';

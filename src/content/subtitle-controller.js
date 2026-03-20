@@ -4,7 +4,6 @@ const BATCH_SIZE = 50;
 
 class SubtitleController {
   constructor() {
-    // Primitive instances
     this._logger  = new Logger();
     this._bus     = new EventBus();
     this._queue   = new SerialQueue();
@@ -12,7 +11,6 @@ class SubtitleController {
     this._store   = new SegmentStore();
     this._overlay = new SubtitleOverlay();
 
-    // Extracted helpers
     this._trackResolver = new TrackResolver();
     this._loader        = new TtmlLoader(this._logger, (state, msg) => this._setStatus(state, msg));
     this._settings      = new SettingsManager(this._logger, {
@@ -27,10 +25,8 @@ class SubtitleController {
     // because injected.js runs in the page's JS world (isolated from the content script world)
     this._manifestCache = {};
     this._manifestCacheOrder = [];
-    // Tracks which movieIds were loaded from persistent storage (vs received live this session)
     this._persistedManifestIds = new Set();
 
-    // Movie lifecycle state
     this._currentMovieId       = null;
     this._urlIdMissingManifest = false; // true when URL is a Netflix alias (no manifest for urlId)
     this._srcLang              = 'en';
@@ -39,15 +35,12 @@ class SubtitleController {
     this._currentTtmlLang     = null;
     this._needsAiTranslation  = false;
 
-    // Translation window state
     this._nextWindowStart = 0;
     this._rollingWindowEnd = 0;
     this._aiRequestSeq    = 0;
 
-    // Status tracking
     this._lastStatus = null;
 
-    // PlaybackSync wired with state callbacks
     this._sync = new PlaybackSync(
       this._store,
       this._overlay,
@@ -67,13 +60,11 @@ class SubtitleController {
   }
 
   _init() {
-    // Inject injected.js into page context
     const script = document.createElement('script');
     script.src = browser.runtime.getURL('src/injected.js');
     script.onload = () => script.remove();
     (document.head || document.documentElement).prepend(script);
 
-    // Clear stale status immediately if not on a watch page
     if (!this._isOnWatchPage()) {
       this._setStatus('idle', 'Waiting for a video to play\u2026');
     }
@@ -594,7 +585,6 @@ class SubtitleController {
 
   _waitForPlaybackStart() {
     return new Promise(resolve => {
-      // Resolve immediately if the video is already playing.
       const video = document.querySelector('video');
       if (video && !video.paused) {
         this._logger.clog(`waitForPlaybackStart resolved immediately at ${this._fmt(video.currentTime)}`);

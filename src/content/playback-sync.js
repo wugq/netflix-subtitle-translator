@@ -100,7 +100,6 @@ class PlaybackSync {
 
     const t = this._videoEl ? this._videoEl.currentTime : 0;
 
-    // Lookahead: trigger next rolling window before the current one is exhausted
     if (state.needsAiTranslation && state.translationEnabled && this._cbs.canTranslateNow() &&
         t >= state.nextWindowStart - LOOKAHEAD_SECONDS &&
         state.nextWindowStart >= state.rollingWindowEnd) {
@@ -116,14 +115,12 @@ class PlaybackSync {
       }
     }
 
-    // When AI is disabled, fall back to original (source-language) segments
     const segs = (state.needsAiTranslation && !state.translationEnabled)
       ? this._store.getOriginal()
       : this._store.getOverlay();
     const activeSegs = this._findSegments(t, segs);
     const text = activeSegs.map(s => s.text).filter(Boolean).join('\n');
 
-    // Show original text below translation when enabled
     let origText = null;
     if (state.showOriginalText && state.needsAiTranslation && state.translationEnabled) {
       const origSegs = this._findSegments(t, this._store.getOriginal());

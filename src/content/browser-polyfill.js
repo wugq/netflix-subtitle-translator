@@ -1,4 +1,3 @@
-// Chrome compatibility polyfill (Handles Promise vs Callback mismatch)
 if (typeof browser === 'undefined') {
   var browser = new Proxy(chrome, {
     get(target, prop) {

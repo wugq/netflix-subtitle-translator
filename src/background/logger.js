@@ -43,7 +43,6 @@ class Logger {
     const line = `${new Date().toISOString()} [${source}] ${message}`;
     const r = await browser.storage.local.get(this._logKey);
     const arr = Array.isArray(r[this._logKey]) ? r[this._logKey] : [];
-    // Skip consecutive duplicate messages (same source + text, ignoring timestamp).
     if (arr.length > 0) {
       const prev = arr[arr.length - 1];
       const prevMsg = prev.slice(prev.indexOf('] ') + 2);

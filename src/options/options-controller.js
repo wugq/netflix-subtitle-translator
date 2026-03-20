@@ -46,7 +46,6 @@ class OptionsController {
     this._bindEvents();
     this._loadLogs();
 
-    // Load saved settings + logging toggles in one read
     browser.storage.local.get(['openaiApiKey', 'aiModel', 'aiBaseUrl', 'verboseLogging']).then(r => {
       if (r.openaiApiKey) this._apiKeyInput.value = r.openaiApiKey;
       this._setProvider(detectProvider(r.aiBaseUrl), r.aiModel);

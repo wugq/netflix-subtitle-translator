@@ -85,10 +85,8 @@ class SubtitleOverlay {
         const opacity = parseFloat(window.getComputedStyle(controls).opacity);
         if (opacity > 0.05 && rect.height > 0) {
           const h = window.innerHeight;
-          // Where the subtitle's bottom edge sits without any bump
           const subtitleBottomFromTop = h * (1 - this._bottomPct / 100);
           if (subtitleBottomFromTop > rect.top) {
-            // Overlapping — push up just enough to clear the controls top
             bump = Math.round(((subtitleBottomFromTop - rect.top) / h) * 1000) / 10;
           }
         }
