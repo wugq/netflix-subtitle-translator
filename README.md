@@ -46,7 +46,7 @@ Install from [Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/ad
    bash build.sh
    ```
 3. In Firefox, go to `about:debugging` → **This Firefox** → **Load Temporary Add-on**
-4. Select the generated `netflix-subtitle-translator.zip` or the `manifest.firefox.json` file
+4. Select the generated `netflix-subtitle-translator.zip` or the `manifest.json` file
 
 ## Supported AI Providers
 
