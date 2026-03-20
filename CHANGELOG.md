@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.4
+
+**New features**
+
+- **Right-click context menu** — right-click anywhere on Netflix to toggle translation on/off, show/hide original text, and switch destination language without opening the popup
+
+**Improvements**
+
+- Refactored `SubtitleController` into focused helper classes for improved stability and maintainability
+- Centralized storage access patterns across the extension
+
+**Bug fixes**
+
+- Fixed duplicate polyfill and capped manifest cache size
+- Fixed log action messages not appearing in the Developer section
+
+---
+
 ## 1.3
 
 **New features**
