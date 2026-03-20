@@ -1,31 +1,28 @@
-# Code Style
+# Project Reference
 
-## Comments
+- **Code style:** [`docs/CODE_STYLE.md`](docs/CODE_STYLE.md) — comments, file organisation
+- **Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — execution contexts, class map, data flow, SPA navigation
+- **Design decisions:** [`docs/DECISIONS.md`](docs/DECISIONS.md) — known gotchas, non-obvious constraints, historical bug fixes
 
-**Never write "what" comments.** Code should be self-explanatory. If a comment only restates what the code does, remove it or rewrite the code to be clearer instead.
+Read these before making changes to understand current design intent.
 
-```js
-// Bad — what comment (restates the code)
-// Increment the counter
-count++;
+**When writing code:**
+- Follow the patterns and constraints in the docs above
+- If a change introduces a new class, modifies a data flow, or resolves a non-obvious bug, update the relevant doc as part of the same change
 
-// Bad — what comment
-// Inject injected.js into page context
-const script = document.createElement('script');
-```
+**When bumping a version:**
+- Run `git log` from the last version commit to HEAD and use it as the basis for the changelog entry — do not rely on memory or conversation history
+- Review all docs and update any sections that no longer reflect the current code
+- All of the above must be done before the version commit is made
 
-**Only write "why" comments** — explaining non-obvious decisions, constraints, browser quirks, or historical context that cannot be expressed in the code itself.
+# Architecture Philosophy
 
-```js
-// Good — why comment (explains a non-obvious browser constraint)
-// Chrome MV3: returning a Promise does not keep the port open.
-// Must return true synchronously and call sendResponse when done.
-result.then(sendResponse);
-return true;
+The three execution contexts (injected page script / content script / background service worker) are **platform-imposed** by the browser extension model — not an architecture choice. Don't treat boundaries between them as clean-arch layer violations.
 
-// Good — why comment (explains a timing edge case)
-// Netflix fires the next video's manifest before the URL changes,
-// so we must not let a later manifest overwrite an earlier one we still need.
-```
+Clean architecture is a longer-term goal, deferred until we have a clearer picture of how to test browser extensions properly. For now, keep code well-structured within each context and avoid unnecessary coupling across contexts.
 
-**When in doubt, prefer clearer naming over a comment.** Rename the variable or extract a well-named function rather than explaining it with a comment.
+# Knowledge Persistence
+
+**Prefer `CLAUDE.md` and `docs/` over local memory files.** Architecture decisions, design rules, and gotchas belong in this repo so they are versioned and available on any machine.
+
+Only use local memory (outside the repo) for information that is genuinely personal or environment-specific and must not go into git.

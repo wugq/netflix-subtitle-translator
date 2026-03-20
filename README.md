@@ -1,6 +1,6 @@
 # Netflix Subtitle Translator
 
-A Firefox browser extension that translates Netflix subtitles in real-time using AI. Translated subtitles are displayed in a custom overlay directly on the video player — no leaving Netflix, no switching tabs.
+A browser extension for Firefox and Chrome that translates Netflix subtitles in real-time using AI. Translated subtitles are displayed in a custom overlay directly on the video player — no leaving Netflix, no switching tabs.
 
 ## Features
 
@@ -99,6 +99,12 @@ Advanced settings (lookahead window, clear cache, debug logging) are available i
 
 - Firefox or Chrome browser
 - An API key from your chosen provider (usage costs vary by provider)
+
+## For Developers
+
+- [Code Style](docs/CODE_STYLE.md) — comment rules, file organisation
+- [Architecture](docs/ARCHITECTURE.md) — execution contexts, class map, data flow, SPA navigation handling
+- [Design Decisions](docs/DECISIONS.md) — known gotchas, non-obvious constraints, historical bug fixes
 
 ## License
 

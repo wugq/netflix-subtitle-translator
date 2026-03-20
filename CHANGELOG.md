@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.5
+
+**Bug fixes**
+
+- Fixed re-navigation to previously-watched videos failing after content script reload — manifest cache is now persisted to storage (up to 50 entries)
+- Fixed Netflix alias URLs (e.g. browse links that redirect to a canonical video ID) triggering the pre-fetch guard and dropping the manifest
+- Fixed same-movie check silently failing due to type mismatch between JSON number (`movieId` from manifest) and URL string (`movieId` from regex)
+- Fixed ghost retry in `PlaybackSync` when `stop()` races a pending `setTimeout`
+- Fixed `_waitForPlaybackStart` missing play events — replaced polling with `play`/`playing` event listeners
+
+**Documentation**
+
+- Added architecture reference ([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)) covering execution contexts, class map, data flow, and SPA navigation
+- Added design decisions reference ([`docs/DECISIONS.md`](docs/DECISIONS.md)) covering known gotchas and non-obvious constraints
+- Updated README to reflect Chrome support and link developer docs
+- Added `CLAUDE.md` coding guidelines for AI-assisted development
+
+---
+
 ## 1.4
 
 **New features**
