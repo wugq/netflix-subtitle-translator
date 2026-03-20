@@ -4,6 +4,12 @@ This document records non-obvious decisions, constraints, and bugs fixed during 
 
 ---
 
+## `manifest.json` must keep its exact name (Firefox constraint)
+
+Firefox `about:debugging` requires the manifest file to be named exactly `manifest.json` when loading a temporary add-on from the source directory. Do not rename it (e.g. to `manifest.firefox.json`) — it will break dev-mode installation. The Chrome manifest uses `manifest.chrome.json` because Chrome loads an unpacked folder, so the build script copies it to `dist/chrome/manifest.json` at build time.
+
+---
+
 ## movieId must always be stored and compared as String
 
 **Rule:** Always `String(movieId)` when storing in `_currentMovieId` or comparing movie IDs.
