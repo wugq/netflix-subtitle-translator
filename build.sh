@@ -5,7 +5,7 @@ mkdir -p dist
 # --- Firefox (MV2) ---
 echo "Building Firefox..."
 zip -r dist/netflix-subtitle-translator-firefox.zip \
-  manifest.json src/ icons/*.png icons/*.svg \
+  manifest.firefox.json src/ icons/*.png icons/*.svg \
   -x "**/.DS_Store"
 echo "Built: dist/netflix-subtitle-translator-firefox.zip"
 
