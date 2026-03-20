@@ -26,10 +26,14 @@ class SubtitleController {
     // Manifest cache keyed by movieId — content script can't read window.__NST_LAST_MANIFEST__
     // because injected.js runs in the page's JS world (isolated from the content script world)
     this._manifestCache = {};
+    this._manifestCacheOrder = [];
+    // Tracks which movieIds were loaded from persistent storage (vs received live this session)
+    this._persistedManifestIds = new Set();
 
     // Movie lifecycle state
-    this._currentMovieId      = null;
-    this._srcLang             = 'en';
+    this._currentMovieId       = null;
+    this._urlIdMissingManifest = false; // true when URL is a Netflix alias (no manifest for urlId)
+    this._srcLang              = 'en';
     this._availableTracks     = [];
     this._currentMode         = null;
     this._currentTtmlLang     = null;
@@ -75,6 +79,7 @@ class SubtitleController {
     }
 
     this._settings.load();
+    this._loadPersistentManifestCache();
 
     this._wireEventBus();
     this._listenInjected();
@@ -87,10 +92,11 @@ class SubtitleController {
     // sometimes navigates without triggering those (no pushState log observed in traces).
     // URL polling at 200ms is used as a reliable fallback.
     const onNav = () => {
-      const urlMovieId = this._getMovieIdFromUrl();
+      const routeMovieId = this._getRouteMovieId();
+      this._urlIdMissingManifest = false;
       const cachedIds  = Object.keys(this._manifestCache);
-      this._logger.clog(`onNav url=${location.pathname} urlMovieId=${urlMovieId} currentMovieId=${this._currentMovieId} manifestCache=[${cachedIds}]`, this._stateSnapshot());
-      if (!this._isOnWatchPage() || !urlMovieId) {
+      this._logger.vlog(`onNav url=${location.pathname} routeMovieId=${routeMovieId} currentMovieId=${this._currentMovieId} manifestCache=[${cachedIds}]`);
+      if (!this._isOnWatchPage() || !routeMovieId) {
         browser.storage.local.remove('netflixLangStatus');
         if (this._currentMovieId) {
           this._currentMovieId = null;
@@ -98,13 +104,20 @@ class SubtitleController {
         }
         return;
       }
-      if (String(urlMovieId) === String(this._currentMovieId)) return;
-      const tracks = this._manifestCache[urlMovieId];
+      if (String(routeMovieId) === String(this._currentMovieId)) return;
+      const tracks = this._manifestCache[routeMovieId];
       if (tracks) {
-        this._logger.clog(`Re-processing cached manifest after SPA navigation → movieId=${urlMovieId}`);
-        this._handleTracks(urlMovieId, tracks);
+        const src = this._persistedManifestIds.has(String(routeMovieId)) ? 'persistent storage' : 'live session';
+        this._logger.vlog(`Re-processing cached manifest (${src}) after SPA navigation → movieId=${routeMovieId}`);
+        this._handleTracks(routeMovieId, tracks);
       } else {
-        this._logger.clog(`onNav — no cached manifest for urlMovieId=${urlMovieId}`);
+        this._logger.vlog(`onNav — no cached manifest for routeMovieId=${routeMovieId}`);
+        // Ask injected.js to re-dispatch nst_tracks from its own in-memory map.
+        // This handles repeat navigation where Netflix never re-fetches (and thus
+        // never re-parses) the manifest, so JSON.parse intercept won't fire again.
+        window.dispatchEvent(new CustomEvent('nst_request_tracks', {
+          detail: JSON.stringify({ movieId: routeMovieId }),
+        }));
       }
     };
     this._nav.start(onNav);
@@ -176,15 +189,30 @@ class SubtitleController {
   _listenInjected() {
     window.addEventListener('nst_tracks', (e) => {
       let payload;
-      try { payload = JSON.parse(e.detail); } catch (_) { return; }
+      try { payload = JSON.parse(e.detail); } catch (_) {
+        this._logger.vlog('nst_tracks received but JSON.parse failed');
+        return;
+      }
+      this._logger.vlog(`nst_tracks received movieId=${payload.movieId} trackCount=${payload.tracks?.length ?? 'null'} url=${location.pathname}`);
       // Cache by movieId — Netflix fires the next video's manifest before the URL changes,
       // so we must not let a later manifest overwrite an earlier one we still need.
       if (payload.movieId) {
-        this._manifestCache[payload.movieId] = payload.tracks;
-        const ids = Object.keys(this._manifestCache);
-        if (ids.length > 5) delete this._manifestCache[ids[0]];
+        this._rememberManifest(payload.movieId, payload.tracks);
+        this._saveManifestCache();
       }
       this._handleTracks(payload.movieId, payload.tracks);
+    });
+
+    // injected.js sends this when nst_request_tracks found no manifest for a movieId.
+    // It means the URL's movieId is a Netflix alias — relax the pre-fetch guard once
+    // so the canonical manifest (which will arrive via nst_tracks) can be accepted.
+    window.addEventListener('nst_no_tracks', (e) => {
+      let payload;
+      try { payload = JSON.parse(e.detail); } catch (_) { return; }
+      if (String(payload.movieId) === this._getRouteMovieId()) {
+        this._logger.vlog(`nst_no_tracks for urlId=${payload.movieId} — pre-fetch guard relaxed (URL alias)`);
+        this._urlIdMissingManifest = true;
+      }
     });
 
     window.addEventListener('nst_src_lang', (e) => {
@@ -205,23 +233,34 @@ class SubtitleController {
   }
 
   async _handleTracks(movieId, tracks) {
-    if (!movieId || !tracks) return;
-    const urlId = this._getMovieIdFromUrl();
-    this._logger.clog(`handleTracks movieId=${movieId} urlId=${urlId} currentMovieId=${this._currentMovieId} onWatchPage=${this._isOnWatchPage()}`, this._stateSnapshot());
+    if (!movieId || !tracks) {
+      this._logger.vlog(`handleTracks ignored — missing movieId or tracks (movieId=${movieId} tracks=${tracks?.length ?? 'null'})`);
+      return;
+    }
+    const urlId = this._getRouteMovieId();
+    this._logger.vlog(`handleTracks movieId=${movieId} urlId=${urlId} currentMovieId=${this._currentMovieId} onWatchPage=${this._isOnWatchPage()}`);
 
     if (!this._isOnWatchPage()) {
-      this._logger.clog(`handleTracks ignored — not on watch page (url=${location.pathname})`);
+      this._logger.vlog(`handleTracks ignored — not on watch page (url=${location.pathname})`);
       return;
     }
 
-    // Ignore manifests for non-active movies (Netflix pre-fetch)
+    // Ignore manifests for non-active movies (Netflix pre-fetch).
+    // Exception: if injected.js signalled it has no manifest for urlId, this is a
+    // Netflix alias URL — accept the first incoming manifest as the real video.
     if (urlId && String(movieId) !== String(urlId)) {
-      this._logger.clog(`handleTracks ignored — pre-fetch guard (manifestId=${movieId} urlId=${urlId})`);
-      return;
+      if (!this._urlIdMissingManifest) {
+        this._logger.vlog(`handleTracks ignored — pre-fetch guard (manifestId=${movieId} urlId=${urlId})`);
+        return;
+      }
+      this._urlIdMissingManifest = false; // consumed — only relax once per navigation
+      this._logger.vlog(`handleTracks — URL alias accepted: movieId=${movieId} for urlId=${urlId}`);
     }
 
-    // Same movie: tracks may have been hydrated
-    if (movieId === this._currentMovieId) {
+    // Same movie: tracks may have been hydrated.
+    // Always compare as strings — movieId from nst_tracks (JSON number) vs
+    // routeMovieId from regex capture (string) would fail strict equality.
+    if (String(movieId) === this._currentMovieId) {
       this._availableTracks = tracks;
       this._saveNetflixLangStatus(tracks);
       const { mode, ttmlLang } = this._trackResolver.determineMode(this._srcLang, this._settings.dstLang, this._availableTracks);
@@ -232,7 +271,7 @@ class SubtitleController {
       return;
     }
 
-    this._currentMovieId = movieId;
+    this._currentMovieId = String(movieId);
     this._resetStateForNewVideo();
     this._availableTracks = tracks;
     this._saveNetflixLangStatus(tracks);
@@ -253,7 +292,9 @@ class SubtitleController {
       if (this._currentMovieId !== capturedMovieId) return;
       if (!this._isOnWatchPage()) return;
       this._sync.videoEl = document.querySelector('video');
-      this._nextWindowStart = startTime;
+      // Use Math.max to preserve a later seek position set by playback:seeked
+      // while _waitForPlaybackStart was in flight.
+      this._nextWindowStart = Math.max(this._nextWindowStart, startTime);
 
       if (this._needsAiTranslation && this._settings.translationEnabled) {
         const flashMsg = dstNotLoaded
@@ -267,8 +308,41 @@ class SubtitleController {
     });
   }
 
+  async _loadPersistentManifestCache() {
+    try {
+      const res = await browser.storage.local.get('nstManifestCache');
+      const saved = res?.nstManifestCache;
+      if (saved && typeof saved === 'object') {
+        const ids = Object.keys(saved);
+        for (const id of ids) {
+          if (!this._manifestCache[id]) {
+            this._manifestCache[id] = saved[id];
+            this._manifestCacheOrder.push(String(id));
+            this._persistedManifestIds.add(id);
+          }
+        }
+        if (ids.length > 0) {
+          this._logger.vlog(`Loaded ${ids.length} manifests from persistent storage: [${ids}]`);
+        }
+      }
+    } catch (err) {
+      this._logger.vlog(`Failed to load persistent manifest cache: ${err.message}`);
+    }
+  }
+
+  _saveManifestCache() {
+    try {
+      // Persist up to 50 most-recent manifests so re-navigation to previously-watched
+      // videos works even after content script reload or in-memory cache eviction.
+      const keep = this._manifestCacheOrder.slice(-50);
+      const toSave = {};
+      for (const id of keep) toSave[id] = this._manifestCache[id];
+      browser.storage.local.set({ nstManifestCache: toSave });
+    } catch (_) {}
+  }
+
   _resetStateForNewVideo() {
-    this._logger.clog(`resetStateForNewVideo (was currentMovieId=${this._currentMovieId})`, this._stateSnapshot());
+    this._logger.vlog(`resetStateForNewVideo (was currentMovieId=${this._currentMovieId})`);
     this._session.cancel();
     this._store.reset();
     this._nextWindowStart = 0; this._rollingWindowEnd = 0;
@@ -520,25 +594,38 @@ class SubtitleController {
 
   _waitForPlaybackStart() {
     return new Promise(resolve => {
-      const MAX_MS = 5000, INTERVAL = 150, began = Date.now();
-      const check = () => {
-        const video = document.querySelector('video');
-        if (video && video.currentTime > 1) {
-          this._logger.clog(`waitForPlaybackStart resolved at ${this._fmt(video.currentTime)}`);
-          resolve(video.currentTime); return;
-        }
-        if (Date.now() - began >= MAX_MS) {
-          const t = video ? video.currentTime : 0;
-          this._logger.clog(`waitForPlaybackStart timed out, currentTime=${this._fmt(t)} hasVideo=${!!video}`);
-          resolve(t); return;
-        }
-        setTimeout(check, INTERVAL);
+      // Resolve immediately if the video is already playing.
+      const video = document.querySelector('video');
+      if (video && !video.paused) {
+        this._logger.clog(`waitForPlaybackStart resolved immediately at ${this._fmt(video.currentTime)}`);
+        resolve(video.currentTime);
+        return;
+      }
+
+      const done = (v) => {
+        cleanup();
+        const t = v ? v.currentTime : 0;
+        this._logger.clog(`waitForPlaybackStart resolved at ${this._fmt(t)}`);
+        resolve(t);
       };
-      check();
+
+      const onPlay = (e) => done(e.target);
+
+      const cleanup = () => {
+        clearTimeout(fallback);
+        document.removeEventListener('play',    onPlay, true);
+        document.removeEventListener('playing', onPlay, true);
+      };
+
+      document.addEventListener('play',    onPlay, true);
+      document.addEventListener('playing', onPlay, true);
+
+      // Fallback in case playback never starts (e.g. user keeps video paused).
+      const fallback = setTimeout(() => done(document.querySelector('video')), 10000);
     });
   }
 
-  _isOnWatchPage() { return location.pathname.startsWith('/watch'); }
+  _isOnWatchPage() { return !!this._getRouteMovieId(); }
 
   _isVideoPlaying() {
     const v = this._sync.videoEl;
@@ -547,9 +634,24 @@ class SubtitleController {
 
   _canTranslateNow() { return this._isOnWatchPage() && this._isVideoPlaying(); }
 
-  _getMovieIdFromUrl() {
+  _getRouteMovieId() {
     const m = location.pathname.match(/\/watch\/(\d+)/);
     return m ? m[1] : null;
+  }
+
+  _rememberManifest(movieId, tracks) {
+    const id = String(movieId);
+    this._manifestCache[id] = tracks;
+    this._persistedManifestIds.delete(id); // now a live entry
+
+    this._manifestCacheOrder = this._manifestCacheOrder.filter(existingId => existingId !== id);
+    this._manifestCacheOrder.push(id);
+
+    while (this._manifestCacheOrder.length > 50) {
+      const evictedId = this._manifestCacheOrder.shift();
+      delete this._manifestCache[evictedId];
+      this._persistedManifestIds.delete(evictedId);
+    }
   }
 
   _fmt(s) {

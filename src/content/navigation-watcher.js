@@ -9,7 +9,7 @@ class NavigationWatcher {
     window.addEventListener('popstate', () => setTimeout(onNav, 50));
     const wrap = (name, orig) => (...args) => {
       const result = orig.apply(history, args);
-      this._logger.clog(`${name} → ${args[2] ?? '(no url)'}`);
+      this._logger.vlog(`${name} → ${args[2] ?? '(no url)'}`);
       setTimeout(onNav, 50);
       return result;
     };
@@ -19,7 +19,7 @@ class NavigationWatcher {
     let _lastUrl = location.href;
     setInterval(() => {
       if (location.href !== _lastUrl) {
-        this._logger.clog(`URL poll detected change: ${_lastUrl} → ${location.href}`);
+        this._logger.vlog(`URL poll detected change: ${_lastUrl} → ${location.href}`);
         _lastUrl = location.href;
         onNav();
       }

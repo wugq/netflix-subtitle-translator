@@ -7,6 +7,13 @@
   // Map of subtitle URL → language code, rebuilt on each new movie manifest
   const urlToLang = {};
 
+  // Map of movieId → tracks, kept across navigations so the content script can
+  // request a re-dispatch when Netflix re-uses its internal parsed manifest
+  // (i.e. does not re-fetch, so JSON.parse is never called again).
+  // Capped at 50 entries (FIFO) to avoid unbounded memory growth.
+  const manifestByMovieId = {};
+  const manifestOrder = [];
+
   function extractUrls(track) {
     const lang = track.language;
     const dl   = track.ttDownloadables;
@@ -58,6 +65,15 @@
           tracks,
         };
 
+        const mid = String(payload.movieId);
+        const idx = manifestOrder.indexOf(mid);
+        if (idx !== -1) manifestOrder.splice(idx, 1);
+        manifestOrder.push(mid);
+        manifestByMovieId[mid] = tracks;
+        if (manifestOrder.length > 50) {
+          delete manifestByMovieId[manifestOrder.shift()];
+        }
+
         window.dispatchEvent(
           new CustomEvent('nst_tracks', {
             detail: JSON.stringify(payload),
@@ -67,4 +83,22 @@
     } catch (_) {}
     return data;
   };
+  // Respond to manifest requests from the content script. Re-dispatches the
+  // manifest if we have it, or fires nst_no_tracks to signal a URL alias
+  // (Netflix alias IDs have no manifest; the canonical one arrives separately).
+  window.addEventListener('nst_request_tracks', (e) => {
+    try {
+      const { movieId } = JSON.parse(e.detail);
+      const tracks = manifestByMovieId[String(movieId)];
+      if (tracks) {
+        window.dispatchEvent(new CustomEvent('nst_tracks', {
+          detail: JSON.stringify({ movieId, tracks }),
+        }));
+      } else {
+        window.dispatchEvent(new CustomEvent('nst_no_tracks', {
+          detail: JSON.stringify({ movieId }),
+        }));
+      }
+    } catch (_) {}
+  });
 })();

@@ -12,6 +12,7 @@ class PlaybackSync {
 
     this._videoEl           = null;
     this._rafId             = null;
+    this._retryToken        = 0;
     this._seekedHandler     = null;
     this._playHandler       = null;
     this._pauseHandler      = null;
@@ -25,7 +26,9 @@ class PlaybackSync {
     if (!this._videoEl) this._videoEl = document.querySelector('video');
     if (!this._videoEl) {
       this._logger.clog('Video element not found, retrying in 1s');
-      setTimeout(() => this.start(), 1000); return;
+      const token = ++this._retryToken;
+      setTimeout(() => { if (this._retryToken === token) this.start(); }, 1000);
+      return;
     }
     if (this._rafId) cancelAnimationFrame(this._rafId);
 
@@ -57,6 +60,7 @@ class PlaybackSync {
   }
 
   stop() {
+    this._retryToken++;
     if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
     this._removeVideoListeners();
     this._logger.clog('Subtitle sync stopped');
