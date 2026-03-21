@@ -12,6 +12,7 @@ Read these before making changes to understand current design intent.
 
 **When bumping a version:**
 - Run `git log` from the last version commit to HEAD and use it as the basis for the changelog entry — do not rely on memory or conversation history
+- Update the version in **both** `manifest.json` (Firefox) and `manifest.chrome.json` (Chrome) — do **not** edit `dist/chrome/manifest.json` directly, that file is build output
 - Review all docs and update any sections that no longer reflect the current code
 - All of the above must be done before the version commit is made
 
