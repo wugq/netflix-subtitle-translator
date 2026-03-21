@@ -96,6 +96,17 @@
         window.dispatchEvent(new CustomEvent('nst_no_tracks', {
           detail: JSON.stringify({ movieId }),
         }));
+        // URL alias: the canonical manifest (different movieId) is already in our
+        // in-memory map from an earlier JSON.parse intercept.  Re-dispatch the most
+        // recent manifest so the content script can accept it via the relaxed guard
+        // (_urlIdMissingManifest = true was just set by the event above).
+        const lastId = manifestOrder[manifestOrder.length - 1];
+        const lastTracks = lastId && manifestByMovieId[lastId];
+        if (lastTracks && lastId !== mid) {
+          window.dispatchEvent(new CustomEvent('nst_tracks', {
+            detail: JSON.stringify({ movieId: lastId, tracks: lastTracks }),
+          }));
+        }
       }
     } catch (err) { console.warn('[NST] nst_request_tracks handler error:', err); }
   });
