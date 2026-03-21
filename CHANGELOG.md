@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.6
+
+**New features**
+
+- **Enable Extension toggle** — checkbox in the popup to instantly disable the extension and restore Netflix's own subtitle rendering; re-enabling resumes translation without a page reload
+- **Compatibility warning** — popup now shows a warning when the Netflix subtitle manifest is undetected, prompting the user to check for extension updates
+- **Expanded AI model support** — options page lists additional OpenAI and xAI models with pricing info
+- **Translation log** — opt-in log in the options page records each AI API call (model, source text, translated text, timestamp); capped at 200 entries
+
+**Bug fixes**
+
+- Fixed subtitles failing to load on repeat navigation to Netflix alias URLs (e.g. browse links that redirect to a canonical video ID)
+- Fixed compatibility watchdog not clearing when the manifest was served from cache on SPA navigation
+- Fixed `overlay.destroy()` not removing the CSS hide rule — Netflix's native subtitles stayed hidden after the overlay was removed
+- Fixed `capturedMovieId` type bug causing stale-response checks to silently pass
+
+**Improvements**
+
+- Deduplicated shared utilities; improved error visibility in the popup status display
+- Options UI improvements: clearer layout, better model selector with provider grouping
+
+---
+
 ## 1.5
 
 **Bug fixes**
