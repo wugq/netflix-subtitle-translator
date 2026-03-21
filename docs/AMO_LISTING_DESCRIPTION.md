@@ -29,7 +29,7 @@ The extension intercepts the subtitle track playing in the Netflix player, sends
 **Features**
 
 - Real-time AI translation with progressive buffering — subtitles appear quickly while more are translated in the background
-- Choose your AI provider: OpenAI (gpt-4o-mini) or xAI (grok-3-mini)
+- Choose your AI provider: OpenAI or xAI — multiple models available with descriptions and pricing shown in settings
 - Dual subtitles — optionally show the original source text below the translation
 - Subtitle style presets — Classic (dark background), Shadow, or Yellow
 - Language availability indicators — the popup shows which languages Netflix has natively (●), which need selecting in Netflix first (○), and which require AI (✦)

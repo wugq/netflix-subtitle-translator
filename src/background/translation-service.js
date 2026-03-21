@@ -62,7 +62,7 @@ class TranslationService {
     const r = await browser.storage.local.get(['openaiApiKey', 'aiModel', 'aiBaseUrl']);
     this._cachedConfig = {
       apiKey:  r.openaiApiKey || '',
-      model:   r.aiModel || 'gpt-4o-mini',
+      model:   r.aiModel || 'gpt-4.1-nano',
       baseUrl: (r.aiBaseUrl || '').trim().replace(/\/$/, '') || 'https://api.openai.com/v1',
     };
     return this._cachedConfig;
@@ -133,14 +133,14 @@ class TranslationService {
       '- Preserve \\n line breaks exactly as they appear.\n' +
       '- Keep the same keys (IDs) as input.\n' +
       '- Output ONLY valid JSON: {"translations": {"id1": "...", "id2": "...", ...}} using the same keys as input.\n' +
-      '- Every input key MUST have a corresponding output key. Never skip or merge entries.';
+      '- Every input key MUST have a corresponding output key with a non-empty translation. Never skip, merge, or combine entries.\n' +
+      '- Each key maps to exactly one subtitle line — do not combine two lines into one translation.';
 
     const keyedEntries = Object.entries(keyed);
     this._logger.vlog(`OpenAI request: ${keyedEntries.length} segments \u2192 ${targetLang}`, keyedEntries.slice(0, 3));
 
     const requestBody = {
       model: config.model,
-      temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },
@@ -173,7 +173,18 @@ class TranslationService {
     const map = parsed.translations;
     if (!map || typeof map !== 'object') throw new Error('Missing translations object');
 
+    await this._appendTranslationLog(config.model, dstLang, keyed, map);
     return map;
+  }
+
+  async _appendTranslationLog(model, dstLang, original, translated) {
+    const r = await browser.storage.local.get(['transLogEnabled', 'nstTranslationLog']);
+    if (!r.transLogEnabled) return;
+    const entry = { ts: new Date().toISOString(), model, dstLang, original, translated };
+    const log = Array.isArray(r.nstTranslationLog) ? r.nstTranslationLog : [];
+    log.push(entry);
+    if (log.length > 200) log.splice(0, log.length - 200);
+    await browser.storage.local.set({ nstTranslationLog: log });
   }
 
   async _translateItems(config, items, dstLang) {
@@ -184,7 +195,7 @@ class TranslationService {
     const keys = Object.keys(map);
     this._logger.vlog(`Received ${keys.length} keys. Sample:`, keys.slice(0, 3).map(k => ({ id: k, text: map[k] })));
 
-    const missingKeys = items.map(i => i.key).filter(key => !(key in map));
+    const missingKeys = items.map(i => i.key).filter(key => !(key in map) || typeof map[key] !== 'string' || map[key].trim() === '');
     if (missingKeys.length) {
       this._logger.clog(`Missing ${missingKeys.length} translation keys, retrying`);
       const retryKeyed = {};

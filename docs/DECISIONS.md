@@ -64,6 +64,29 @@ Firefox `about:debugging` requires the manifest file to be named exactly `manife
 
 ---
 
+## Checking AI provider model lists and pricing
+
+| Provider | Pricing URL |
+|---|---|
+| OpenAI | `https://developers.openai.com/api/docs/pricing` (also available as `.md` for plain text) |
+| xAI | `https://docs.x.ai/developers/models` |
+
+**Note:** When fetching OpenAI pricing programmatically, the cached input column can be misread as the output price. Always cross-check output prices manually — output is always more expensive than input.
+
+---
+
+## `temperature` is not sent in translation API requests
+
+`temperature: 0` was removed from the OpenAI-compatible request body. Reasoning models (e.g. xAI's `grok-*-reasoning` variants, OpenAI's o-series) reject requests that include a `temperature` parameter and return an API error. For subtitle translation the omission has no practical effect — translation is a deterministic lookup task and model defaults produce consistent output regardless.
+
+---
+
+## Translation log is opt-in and gated by `transLogEnabled`
+
+`TranslationService._appendTranslationLog()` reads `transLogEnabled` from storage before writing. The feature is off by default to avoid accumulating data users did not ask for. The flag is toggled via a checkbox in the options page Translation Log section. Log entries are capped at 200 to avoid filling storage.
+
+---
+
 ## Class-based refactor rationale
 
 The original `src/content.js` was 1028 lines with 40+ free state variables and 4 inline IIFEs. It was split into class-per-file under `src/content/` for maintainability. `SubtitleController` is the main orchestrator; all other classes are injected or constructed by it.

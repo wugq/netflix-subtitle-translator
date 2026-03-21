@@ -52,7 +52,7 @@ A browser extension (Chrome MV3 / Firefox) that intercepts Netflix subtitle mani
 
 | Class | File | Responsibility |
 |---|---|---|
-| `TranslationService` | `translation-service.js` | Handles `translate` / `checkApiKey` messages; calls OpenAI-compatible API. |
+| `TranslationService` | `translation-service.js` | Handles `translate` / `checkApiKey` messages; calls OpenAI-compatible API. When translation logging is enabled, appends each API call result to `nstTranslationLog` in storage. |
 | `TranslationCache` | `translation-cache.js` | LRU in-memory cache + `browser.storage` persistence for translations. |
 | `Logger` | `logger.js` | Appends verbose log entries to `browser.storage.local` (`nstLogBuffer`) for inspection via the options page. |
 

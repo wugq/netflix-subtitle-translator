@@ -83,6 +83,12 @@ Click **"Submit for Review"**. Google's automated systems and human reviewers wi
 
 ---
 
+## Known Rejection: "Inaccurate Description — Irrelevant info" (violation ref: Red Potassium)
+
+A submission was rejected with the reviewer flagging `"Media"` as irrelevant metadata. The category was already set to **Tools** — the issue was likely a **tag or keyword** in the listing that referenced "Media". Remove any tags unrelated to the extension's actual function (subtitle translation, AI, language tools). Keep tags specific and accurate.
+
+---
+
 ## After Approval
 - The extension becomes publicly listed on the Chrome Web Store
 - For future updates, go to the Developer Dashboard → your extension → **"Upload New Package"**

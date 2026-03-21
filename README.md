@@ -4,7 +4,7 @@ A browser extension for Firefox and Chrome that translates Netflix subtitles in 
 
 ## Features
 
-- **Real-time AI translation** — works with OpenAI (gpt-4o-mini) or xAI (grok-3-mini)
+- **Real-time AI translation** — works with OpenAI and xAI; choose from multiple models with descriptions and indicative pricing shown in settings
 - **Smart mode detection** — uses Netflix's native subtitles when available, falls back to AI translation
 - **Progressive buffering** — subtitles start appearing quickly while translation continues in the background
 - **Translation caching** — subtitles are cached per movie/language pair so you don't re-translate on rewatch
@@ -50,10 +50,12 @@ Install from [Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/ad
 
 ## Supported AI Providers
 
-| Provider | Model |
+| Provider | Models |
 |---|---|
-| OpenAI | gpt-4o-mini |
-| xAI | grok-3-mini |
+| OpenAI | gpt-4.1-nano, gpt-5-nano, gpt-5-mini, gpt-5.4-nano, gpt-4o-mini, gpt-4.1-mini, gpt-4.1 |
+| xAI | grok-4-1-fast-non-reasoning, grok-4.20-non-reasoning |
+
+Model descriptions and indicative pricing are shown in the settings page. Prices change over time — always check the provider's official pricing page before use.
 
 ## Setup
 

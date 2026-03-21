@@ -22,9 +22,10 @@
       </div>
       <div class="field">
         <label for="aiModel">Model</label>
-        <select id="aiModel">
+        <select id="aiModel" style="display:none;">
           <!-- populated by JS based on provider -->
         </select>
+        <div id="modelTable" class="model-table-wrap"></div>
       </div>
       <div class="field">
         <label for="apiKey">API Key</label>
@@ -66,6 +67,23 @@
       <div id="logCount" class="note">No logs yet.</div>
       <textarea id="logOutput" class="log-output" readonly spellcheck="false" placeholder="Logs will appear here when debug logging is enabled."></textarea>
       <div id="logStatus" class="status hidden"></div>
+    </section>
+
+    <section class="card">
+      <h2>Translation Log</h2>
+      <label class="checkbox-row">
+        <input type="checkbox" id="transLogEnabled" />
+        Enable translation logging
+      </label>
+      <p class="note" style="margin-bottom: 16px;">Records each API translation call — model used, original text, translated text, and timestamp. Useful for diagnosing sync issues. Capped at 200 entries.</p>
+      <div class="log-actions" style="margin-top:0.8rem;">
+        <button id="copyTransLog" class="btn btn-secondary">Copy Log</button>
+        <button id="clearTransLog" class="btn btn-secondary">Clear Log</button>
+        <button id="refreshTransLog" class="btn btn-secondary">Refresh</button>
+      </div>
+      <div id="transLogCount" class="note">No entries yet.</div>
+      <textarea id="transLogOutput" class="log-output" readonly spellcheck="false" placeholder="Translation log will appear here after translations run."></textarea>
+      <div id="transLogStatus" class="status hidden"></div>
     </section>
 
     <section class="card info">
