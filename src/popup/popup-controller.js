@@ -47,8 +47,9 @@ class PopupController {
       ai_notice:   { cls: 'state-ai_notice' },
     };
 
-    this._offNetflix  = document.getElementById('offNetflix');
-    this._mainContent = document.getElementById('mainContent');
+    this._offNetflix       = document.getElementById('offNetflix');
+    this._mainContent      = document.getElementById('mainContent');
+    this._compatWarning = document.getElementById('compatWarning');
 
     this._checkCurrentTab();
     this._bindEvents();
@@ -113,6 +114,9 @@ class PopupController {
       if (changes.netflixLangStatus) {
         this._updateLangIndicators(changes.netflixLangStatus.newValue || null);
       }
+      if (changes.nstCompatWarning) {
+        this._compatWarning.hidden = !changes.nstCompatWarning.newValue;
+      }
     });
   }
 
@@ -150,7 +154,7 @@ class PopupController {
       'openaiApiKey', 'aiModel', 'aiBaseUrl',
       'translationEnabled', 'dstLang', 'showNotice', 'showOriginalText', 'subtitleStyle',
       'subtitleFontSize', 'subtitleBottom', 'windowMinutes',
-      'translationStatus', 'netflixLangStatus',
+      'translationStatus', 'netflixLangStatus', 'nstCompatWarning',
     ]).then(r => {
       const hasKey = !!(r.openaiApiKey);
       if (hasKey) {
@@ -181,6 +185,7 @@ class PopupController {
 
       this._renderStatus(r.translationStatus || null);
       this._updateLangIndicators(r.netflixLangStatus || null);
+      this._compatWarning.hidden = !r.nstCompatWarning;
     });
   }
 

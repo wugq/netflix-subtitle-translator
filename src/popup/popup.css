@@ -158,6 +158,30 @@ h1 {
   cursor: pointer;
 }
 
+/* Compatibility warning */
+.compat-warning {
+  margin: 10px 14px 0;
+  padding: 8px 11px;
+  background: #2a1800;
+  border: 1px solid #5a3800;
+  border-radius: 6px;
+}
+
+.compat-warning-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffb74d;
+}
+
+.compat-warning-sub {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
 /* Display controls panel */
 .display-panel {
   margin: 10px 14px 0;

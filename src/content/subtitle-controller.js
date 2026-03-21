@@ -40,6 +40,7 @@ class SubtitleController {
     this._aiRequestSeq    = 0;
 
     this._lastStatus = null;
+    this._compatWatchdog = null;
 
     this._sync = new PlaybackSync(
       this._store,
@@ -67,6 +68,8 @@ class SubtitleController {
 
     if (!this._isOnWatchPage()) {
       this._setStatus('idle', 'Waiting for a video to play\u2026');
+    } else {
+      this._startCompatWatchdog();
     }
 
     this._settings.load();
@@ -88,6 +91,7 @@ class SubtitleController {
       const cachedIds  = Object.keys(this._manifestCache);
       this._logger.vlog(`onNav url=${location.pathname} routeMovieId=${routeMovieId} currentMovieId=${this._currentMovieId} manifestCache=[${cachedIds}]`);
       if (!this._isOnWatchPage() || !routeMovieId) {
+        this._clearCompatWatchdog();
         browser.storage.local.remove('netflixLangStatus');
         if (this._currentMovieId) {
           this._currentMovieId = null;
@@ -103,6 +107,7 @@ class SubtitleController {
         this._handleTracks(routeMovieId, tracks);
       } else {
         this._logger.vlog(`onNav — no cached manifest for routeMovieId=${routeMovieId}`);
+        this._startCompatWatchdog();
         // Ask injected.js to re-dispatch nst_tracks from its own in-memory map.
         // This handles repeat navigation where Netflix never re-fetches (and thus
         // never re-parses) the manifest, so JSON.parse intercept won't fire again.
@@ -179,6 +184,7 @@ class SubtitleController {
 
   _listenInjected() {
     window.addEventListener('nst_tracks', (e) => {
+      this._clearCompatWatchdog();
       let payload;
       try { payload = JSON.parse(e.detail); } catch (_) {
         this._logger.vlog('nst_tracks received but JSON.parse failed');
@@ -551,6 +557,22 @@ class SubtitleController {
         readyState:  video.readyState,
       } : null,
     };
+  }
+
+  _startCompatWatchdog() {
+    this._clearCompatWatchdog();
+    this._compatWatchdog = setTimeout(() => {
+      this._compatWatchdog = null;
+      browser.storage.local.set({ nstCompatWarning: true });
+    }, 15000);
+  }
+
+  _clearCompatWatchdog() {
+    if (this._compatWatchdog) {
+      clearTimeout(this._compatWatchdog);
+      this._compatWatchdog = null;
+    }
+    browser.storage.local.remove('nstCompatWarning');
   }
 
   _setStatus(state, message) {
