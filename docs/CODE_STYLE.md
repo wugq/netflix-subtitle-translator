@@ -30,6 +30,21 @@ return true;
 
 **When in doubt, prefer clearer naming over a comment.** Rename the variable or extract a well-named function rather than explaining it with a comment.
 
+## DOM manipulation
+
+**Never use `innerHTML` with dynamic values.** Firefox's extension linter flags any `innerHTML` assignment that includes a non-literal value as an unsafe security violation. Use `textContent` for text and explicit `document.createElement` / `append` for markup.
+
+```js
+// Bad — linter error in Firefox extension review
+el.innerHTML = `<span class="${cls}">${value}</span>`;
+
+// Good
+const span = document.createElement('span');
+span.className = cls;
+span.textContent = value;
+el.appendChild(span);
+```
+
 ## Organisation
 
 **One class per file.** Each class lives in its own file named after the class in kebab-case (e.g. `SubtitleController` → `subtitle-controller.js`).

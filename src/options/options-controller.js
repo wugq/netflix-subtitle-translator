@@ -112,7 +112,13 @@ class OptionsController {
 
       const tdName = document.createElement('td');
       tdName.className = 'model-table-name';
-      tdName.innerHTML = `<span class="model-table-id">${m.id}</span><span class="model-table-desc">${m.desc}</span>`;
+      const idSpan = document.createElement('span');
+      idSpan.className = 'model-table-id';
+      idSpan.textContent = m.id;
+      const descSpan = document.createElement('span');
+      descSpan.className = 'model-table-desc';
+      descSpan.textContent = m.desc;
+      tdName.append(idSpan, descSpan);
 
       const tdPrice = document.createElement('td');
       tdPrice.className = 'model-table-price';
@@ -128,7 +134,13 @@ class OptionsController {
 
     const footer = document.createElement('p');
     footer.className = 'note model-table-footer';
-    footer.innerHTML = `Prices indicative as of 2026-03 — <a href="${cfg.pricingUrl}" target="_blank" rel="noopener">check official pricing</a>`;
+    footer.textContent = 'Prices indicative as of 2026-03 — ';
+    const pricingLink = document.createElement('a');
+    pricingLink.href = cfg.pricingUrl;
+    pricingLink.target = '_blank';
+    pricingLink.rel = 'noopener';
+    pricingLink.textContent = 'check official pricing';
+    footer.appendChild(pricingLink);
 
     this._modelTableEl.replaceChildren(table, footer);
   }
