@@ -102,6 +102,7 @@ class SubtitleController {
       if (String(routeMovieId) === String(this._currentMovieId)) return;
       const tracks = this._manifestCache[routeMovieId];
       if (tracks) {
+        this._clearCompatWatchdog();
         const src = this._persistedManifestIds.has(String(routeMovieId)) ? 'persistent storage' : 'live session';
         this._logger.vlog(`Re-processing cached manifest (${src}) after SPA navigation → movieId=${routeMovieId}`);
         this._handleTracks(routeMovieId, tracks);
