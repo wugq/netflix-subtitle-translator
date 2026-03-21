@@ -2,6 +2,10 @@
 
 const LOOKAHEAD_SECONDS = 60;
 
+function fmtTime(s) {
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+}
+
 class PlaybackSync {
   constructor(store, overlay, bus, logger, stateCallbacks) {
     this._store    = store;
@@ -36,13 +40,13 @@ class PlaybackSync {
 
     this._seekedHandler = () => {
       const t = this._videoEl.currentTime;
-      this._logger.clog(`Video seeked to ${this._fmt(t)}`);
+      this._logger.clog(`Video seeked to ${fmtTime(t)}`);
       this._bus.emit('playback:seeked', { time: t });
     };
     this._playHandler = () => {
       if (!this._cbs.isOnWatchPage()) return;
       const t = this._videoEl.currentTime;
-      this._logger.clog(`Video play at ${this._fmt(t)}`);
+      this._logger.clog(`Video play at ${fmtTime(t)}`);
       this._bus.emit('playback:play', { time: t });
     };
     this._pauseHandler = () => {
@@ -109,7 +113,7 @@ class PlaybackSync {
       const signal = state.signal;
       if (wEnd > state.nextWindowStart && signal && !signal.aborted) {
         this._cbs.book(wEnd);
-        this._logger.vlog(`Rolling window triggered: ${this._fmt(state.nextWindowStart)} → ${this._fmt(wEnd)} (at ${this._fmt(t)})`);
+        this._logger.vlog(`Rolling window triggered: ${fmtTime(state.nextWindowStart)} → ${fmtTime(wEnd)} (at ${fmtTime(t)})`);
         this._cbs.translate(state.nextWindowStart, wEnd, signal)
           .catch(() => { this._cbs.book(0); });
       }
@@ -164,7 +168,4 @@ class PlaybackSync {
     return results.sort((a, b) => a.begin - b.begin || a.seq - b.seq);
   }
 
-  _fmt(s) {
-    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-  }
 }

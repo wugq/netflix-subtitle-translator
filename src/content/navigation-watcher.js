@@ -3,9 +3,12 @@
 class NavigationWatcher {
   constructor(logger) {
     this._logger = logger;
+    this._intervalId = null;
   }
 
   start(onNav) {
+    if (this._intervalId !== null) return; // guard against double-start
+
     window.addEventListener('popstate', () => setTimeout(onNav, 50));
     const wrap = (name, orig) => (...args) => {
       const result = orig.apply(history, args);
@@ -17,7 +20,7 @@ class NavigationWatcher {
     history.replaceState = wrap('replaceState', history.replaceState);
 
     let _lastUrl = location.href;
-    setInterval(() => {
+    this._intervalId = setInterval(() => {
       if (location.href !== _lastUrl) {
         this._logger.vlog(`URL poll detected change: ${_lastUrl} → ${location.href}`);
         _lastUrl = location.href;

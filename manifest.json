@@ -32,6 +32,7 @@
   "web_accessible_resources": ["src/injected.js"],
   "background": {
     "scripts": [
+      "src/shared/lang-utils.js",
       "src/background/logger.js",
       "src/background/translation-cache.js",
       "src/background/translation-service.js",
@@ -44,6 +45,7 @@
     {
       "matches": ["*://www.netflix.com/*"],
       "js": [
+        "src/shared/lang-utils.js",
         "src/content/browser-polyfill.js",
         "src/content/logger.js",
         "src/content/event-bus.js",

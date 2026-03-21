@@ -78,7 +78,7 @@
           })
         );
       }
-    } catch (_) {}
+    } catch (err) { console.warn('[NST] JSON.parse intercept error:', err); }
     return data;
   };
   // Respond to manifest requests from the content script. Re-dispatches the
@@ -97,6 +97,6 @@
           detail: JSON.stringify({ movieId }),
         }));
       }
-    } catch (_) {}
+    } catch (err) { console.warn('[NST] nst_request_tracks handler error:', err); }
   });
 })();

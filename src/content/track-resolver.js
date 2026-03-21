@@ -1,15 +1,9 @@
 'use strict';
 
 class TrackResolver {
-  langMatches(a, b) {
-    if (!a || !b) return false;
-    const la = a.toLowerCase(), lb = b.toLowerCase();
-    return la === lb || la.startsWith(lb + '-') || lb.startsWith(la + '-');
-  }
-
   findTtmlUrl(tracks, langCode) {
     const FORMATS = ['imsc1.1', 'dfxp-ls-sdh', 'simplesdh', 'nflx-cmisc', 'dfxp'];
-    const candidates = tracks.filter(t => this.langMatches(t.language, langCode));
+    const candidates = tracks.filter(t => langMatches(t.language, langCode));
     if (!candidates.length) return null;
 
     function firstHttps(obj) {
@@ -38,18 +32,18 @@ class TrackResolver {
 
   langLabel(code, tracks) {
     if (!code) return 'Source';
-    const track = tracks.find(t => this.langMatches(t.language, code));
+    const track = tracks.find(t => langMatches(t.language, code));
     return track?.languageDescription || code;
   }
 
   determineMode(srcLang, dstLang, tracks) {
-    if (this.langMatches(srcLang, dstLang)) {
+    if (langMatches(srcLang, dstLang)) {
       return { mode: 'passthrough', ttmlLang: srcLang };
     }
     if (this.findTtmlUrl(tracks, dstLang)) {
       return { mode: 'native', ttmlLang: dstLang };
     }
-    const dstListed = tracks.some(t => this.langMatches(t.language, dstLang));
+    const dstListed = tracks.some(t => langMatches(t.language, dstLang));
     const ttmlLang  = this.findTtmlUrl(tracks, 'en') ? 'en' : srcLang;
     return { mode: 'ai', ttmlLang, dstNotLoaded: dstListed };
   }

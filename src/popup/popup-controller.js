@@ -208,12 +208,6 @@ class PopupController {
     }
   }
 
-  _langMatches(a, b) {
-    if (!a || !b) return false;
-    const la = a.toLowerCase(), lb = b.toLowerCase();
-    return la === lb || la.startsWith(lb + '-') || lb.startsWith(la + '-');
-  }
-
   _updateLangIndicators(langStatus) {
     const opts = Array.from(this._dstLangSelect.options);
     for (const opt of opts) {
@@ -225,9 +219,9 @@ class PopupController {
         continue;
       }
       const { nativeAvailable = [], needsSelection = [] } = langStatus;
-      if (nativeAvailable.some(l => this._langMatches(l, opt.value))) {
+      if (nativeAvailable.some(l => langMatches(l, opt.value))) {
         opt.textContent = '● ' + base;
-      } else if (needsSelection.some(l => this._langMatches(l, opt.value))) {
+      } else if (needsSelection.some(l => langMatches(l, opt.value))) {
         opt.textContent = '○ ' + base;
       } else {
         opt.textContent = '✦ ' + base;

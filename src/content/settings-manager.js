@@ -30,7 +30,7 @@ class SettingsManager {
       if (r.showOriginalText   != null) this.showOriginalText   = r.showOriginalText;
       if (r.verboseLogging     != null) this._cbs.onVerboseLoggingChanged(r.verboseLogging);
       this._cbs.onStyleChanged(this.subtitleFontSize, this.subtitleBottom, this.subtitleStyle);
-    });
+    }).catch(err => this._logger.vlog('Failed to load settings: ' + err.message));
 
     browser.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;

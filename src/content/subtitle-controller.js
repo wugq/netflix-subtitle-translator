@@ -154,20 +154,20 @@ class SubtitleController {
     this._bus.on('playback:seeked', ({ time }) => {
       this._nextWindowStart = time; this._rollingWindowEnd = 0;
       if (this._needsAiTranslation && this._settings.translationEnabled && this._canTranslateNow()) {
-        this._logger.clog(`playback:seeked → ${this._fmt(time)}, starting translation`);
+        this._logger.clog(`playback:seeked → ${fmtTime(time)}, starting translation`);
         this._initialTranslation(time, null, this._session.start());
       } else {
-        this._logger.clog(`playback:seeked → ${this._fmt(time)}, no translation (needsAi=${this._needsAiTranslation} enabled=${this._settings.translationEnabled})`);
+        this._logger.clog(`playback:seeked → ${fmtTime(time)}, no translation (needsAi=${this._needsAiTranslation} enabled=${this._settings.translationEnabled})`);
       }
     });
 
     this._bus.on('playback:play', ({ time }) => {
       this._nextWindowStart = time;
       if (this._needsAiTranslation && this._settings.translationEnabled) {
-        this._logger.clog(`playback:play at ${this._fmt(time)}, starting translation`);
+        this._logger.clog(`playback:play at ${fmtTime(time)}, starting translation`);
         this._initialTranslation(time, null, this._session.start());
       } else {
-        this._logger.clog(`playback:play at ${this._fmt(time)}, no translation (needsAi=${this._needsAiTranslation} enabled=${this._settings.translationEnabled})`);
+        this._logger.clog(`playback:play at ${fmtTime(time)}, no translation (needsAi=${this._needsAiTranslation} enabled=${this._settings.translationEnabled})`);
         this._setModeStatus(this._currentMode);
       }
     });
@@ -285,7 +285,7 @@ class SubtitleController {
       this._overlay.ensure();
       this._sync.start();
 
-      const capturedMovieId = movieId;
+      const capturedMovieId = this._currentMovieId; // capture string form; movieId from nst_tracks is a JSON number
       const startTime = await this._waitForPlaybackStart();
       if (this._currentMovieId !== capturedMovieId) return;
       if (!this._isOnWatchPage()) return;
@@ -336,7 +336,9 @@ class SubtitleController {
       const toSave = {};
       for (const id of keep) toSave[id] = this._manifestCache[id];
       browser.storage.local.set({ nstManifestCache: toSave });
-    } catch (_) {}
+    } catch (err) {
+      this._logger.vlog('Failed to save manifest cache: ' + err.message);
+    }
   }
 
   _resetStateForNewVideo() {
@@ -346,6 +348,7 @@ class SubtitleController {
     this._nextWindowStart = 0; this._rollingWindowEnd = 0;
     this._currentMode = null; this._currentTtmlLang = null; this._needsAiTranslation = false;
     this._sync.stop();
+    this._overlay.destroy();
     browser.storage.local.remove('netflixLangStatus');
   }
 
@@ -402,16 +405,16 @@ class SubtitleController {
       return false;
     }
 
-    this._logger.clog(`Translating window ${this._fmt(fromTime)} \u2192 ${this._fmt(toTime)}`);
+    this._logger.clog(`Translating window ${fmtTime(fromTime)} \u2192 ${fmtTime(toTime)}`);
     const videoEl = this._sync.videoEl;
-    const nowFmt = () => videoEl ? this._fmt(videoEl.currentTime) : this._fmt(fromTime);
+    const nowFmt = () => videoEl ? fmtTime(videoEl.currentTime) : fmtTime(fromTime);
     const srcLabel = this._trackResolver.langLabel(this._srcLang, this._availableTracks);
 
     const pending = this._store.pendingIndices(fromTime, toTime);
 
     if (pending.length === 0) {
       this._nextWindowStart = toTime;
-      this._setStatus('done', `Up to ${this._fmt(toTime)} already translated (at ${nowFmt()})`);
+      this._setStatus('done', `Up to ${fmtTime(toTime)} already translated (at ${nowFmt()})`);
       return true;
     }
 
@@ -451,6 +454,7 @@ class SubtitleController {
           this._setStatus('error', 'No API key \u2014 open extension settings');
           return false;
         }
+        this._logger.clog('AI batch failed, skipping slice', { requestId, error: response?.error });
         continue;
       }
 
@@ -473,7 +477,7 @@ class SubtitleController {
 
     if (signal.aborted) return false;
     this._nextWindowStart = Math.max(this._nextWindowStart, toTime);
-    this._setStatus('done', `Translated up to ${this._fmt(toTime)} (at ${nowFmt()})`);
+    this._setStatus('done', `Translated up to ${fmtTime(toTime)} (at ${nowFmt()})`);
     return true;
   }
 
@@ -610,7 +614,7 @@ class SubtitleController {
     return new Promise(resolve => {
       const video = document.querySelector('video');
       if (video && !video.paused) {
-        this._logger.clog(`waitForPlaybackStart resolved immediately at ${this._fmt(video.currentTime)}`);
+        this._logger.clog(`waitForPlaybackStart resolved immediately at ${fmtTime(video.currentTime)}`);
         resolve(video.currentTime);
         return;
       }
@@ -618,7 +622,7 @@ class SubtitleController {
       const done = (v) => {
         cleanup();
         const t = v ? v.currentTime : 0;
-        this._logger.clog(`waitForPlaybackStart resolved at ${this._fmt(t)}`);
+        this._logger.clog(`waitForPlaybackStart resolved at ${fmtTime(t)}`);
         resolve(t);
       };
 
@@ -667,9 +671,6 @@ class SubtitleController {
     }
   }
 
-  _fmt(s) {
-    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-  }
 }
 
 new SubtitleController();

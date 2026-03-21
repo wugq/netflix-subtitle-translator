@@ -65,12 +65,6 @@ async function createMenus() {
   }
 }
 
-function langMatches(a, b) {
-  if (!a || !b) return false;
-  const la = a.toLowerCase(), lb = b.toLowerCase();
-  return la === lb || la.startsWith(lb + '-') || lb.startsWith(la + '-');
-}
-
 function langIndicator(value, langStatus) {
   if (!langStatus) return '✦';
   const { nativeAvailable = [], needsSelection = [] } = langStatus;
