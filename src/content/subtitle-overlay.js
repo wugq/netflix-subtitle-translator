@@ -195,6 +195,7 @@ class SubtitleOverlay {
     if (this._overlayEl) { this._overlayEl.remove(); this._overlayEl = null; }
     if (this._flashEl)   { this._flashEl.remove();   this._flashEl   = null; }
     clearTimeout(this._flashTimeout);
+    document.getElementById('nst-hide-style')?.remove();
   }
 
   _hideNetflixSubtitles() {

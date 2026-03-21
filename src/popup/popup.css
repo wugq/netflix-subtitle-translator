@@ -74,6 +74,23 @@ h1 {
   color: #e50914;
 }
 
+/* Disable extension toggle */
+.disable-panel {
+  margin: 10px 14px 0;
+}
+
+.disable-row {
+  color: #888;
+}
+
+.disable-row input[type="checkbox"] {
+  accent-color: #888;
+}
+
+#mainContent.ext-disabled #extensionControls {
+  display: none;
+}
+
 /* Translation toggle */
 .toggle-panel {
   margin: 10px 14px 0;

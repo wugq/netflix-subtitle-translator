@@ -24,6 +24,9 @@ class PopupController {
     this._statusText = document.getElementById('statusText');
     this._statusTime = document.getElementById('statusTime');
 
+    this._extEnabledCheckbox = document.getElementById('extEnabled');
+    this._extEnabled = true;
+
     this._translationEnabled = true;
     this._timeInterval = null;
 
@@ -73,6 +76,12 @@ class PopupController {
     this._openOptionsBtn.addEventListener('click', () => {
       browser.runtime.openOptionsPage();
       window.close();
+    });
+
+    this._extEnabledCheckbox.addEventListener('change', () => {
+      this._extEnabled = this._extEnabledCheckbox.checked;
+      browser.storage.local.set({ nstExtEnabled: this._extEnabled });
+      this._updateDisabledState();
     });
 
     this._toggleBtn.addEventListener('click', () => {
@@ -154,7 +163,7 @@ class PopupController {
       'openaiApiKey', 'aiModel', 'aiBaseUrl',
       'translationEnabled', 'dstLang', 'showNotice', 'showOriginalText', 'subtitleStyle',
       'subtitleFontSize', 'subtitleBottom', 'windowMinutes',
-      'translationStatus', 'netflixLangStatus', 'nstCompatWarning',
+      'translationStatus', 'netflixLangStatus', 'nstCompatWarning', 'nstExtEnabled',
     ]).then(r => {
       const hasKey = !!(r.openaiApiKey);
       if (hasKey) {
@@ -167,6 +176,10 @@ class PopupController {
         this._statusBadge.textContent = 'Not configured';
         this._statusBadge.className   = 'badge badge-unconfigured';
       }
+
+      this._extEnabled = r.nstExtEnabled !== false;
+      this._extEnabledCheckbox.checked = this._extEnabled;
+      this._updateDisabledState();
 
       this._translationEnabled = r.translationEnabled !== false;
       this._updateToggleBtn();
@@ -206,6 +219,10 @@ class PopupController {
       this._toggleBtn.textContent = 'Resume Translation';
       this._toggleBtn.className   = 'toggle-btn paused';
     }
+  }
+
+  _updateDisabledState() {
+    this._mainContent.classList.toggle('ext-disabled', !this._extEnabled);
   }
 
   _updateLangIndicators(langStatus) {

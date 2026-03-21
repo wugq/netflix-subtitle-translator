@@ -18,6 +18,7 @@ class SubtitleController {
       onTranslationEnabledChanged: (enabled) => this._bus.emit('settings:translationEnabled', { enabled }),
       onDstLangChanged:            () => this._onLanguageChanged('dstLang'),
       onVerboseLoggingChanged:     (verbose) => this._logger.configure(verbose),
+      onExtEnabledChanged:         (enabled) => this._onExtEnabledChanged(enabled),
     });
     this._nav = new NavigationWatcher(this._logger);
 
@@ -38,6 +39,8 @@ class SubtitleController {
     this._nextWindowStart = 0;
     this._rollingWindowEnd = 0;
     this._aiRequestSeq    = 0;
+
+    this._hardDisabled = false;
 
     this._lastStatus = null;
     this._compatWatchdog = null;
@@ -231,6 +234,7 @@ class SubtitleController {
   }
 
   async _handleTracks(movieId, tracks) {
+    if (this._hardDisabled) return;
     if (!movieId || !tracks) {
       this._logger.vlog(`handleTracks ignored — missing movieId or tracks (movieId=${movieId} tracks=${tracks?.length ?? 'null'})`);
       return;
@@ -654,6 +658,30 @@ class SubtitleController {
   _getRouteMovieId() {
     const m = location.pathname.match(/\/watch\/(\d+)/);
     return m ? m[1] : null;
+  }
+
+  _onExtEnabledChanged(enabled) {
+    this._logger.clog(`nstExtEnabled → ${enabled}`);
+    if (!enabled) {
+      this._hardDisabled = true;
+      this._resetStateForNewVideo();
+      this._currentMovieId = null;
+      this._clearCompatWatchdog();
+    } else {
+      this._hardDisabled = false;
+      const routeMovieId = this._getRouteMovieId();
+      if (routeMovieId) {
+        const tracks = this._manifestCache[routeMovieId];
+        if (tracks) {
+          this._handleTracks(routeMovieId, tracks);
+        } else {
+          this._startCompatWatchdog();
+          window.dispatchEvent(new CustomEvent('nst_request_tracks', {
+            detail: JSON.stringify({ movieId: routeMovieId }),
+          }));
+        }
+      }
+    }
   }
 
   _rememberManifest(movieId, tracks) {

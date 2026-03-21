@@ -10,6 +10,7 @@ class SettingsManager {
     this.subtitleBottom     = 8;
     this.subtitleStyle      = 'classic';
     this.translationEnabled = true;
+    this.extEnabled         = true;
     this.dstLang            = 'zh-Hans';
     this.showNotice         = true;
     this.showOriginalText   = false;
@@ -18,7 +19,7 @@ class SettingsManager {
   load() {
     browser.storage.local.get([
       'subtitleFontSize', 'subtitleBottom', 'subtitleStyle', 'windowMinutes', 'translationEnabled', 'dstLang',
-      'showNotice', 'verboseLogging', 'showOriginalText',
+      'showNotice', 'verboseLogging', 'showOriginalText', 'nstExtEnabled',
     ]).then(r => {
       if (r.subtitleFontSize   != null) this.subtitleFontSize   = r.subtitleFontSize;
       if (r.subtitleBottom     != null) this.subtitleBottom     = r.subtitleBottom;
@@ -29,6 +30,7 @@ class SettingsManager {
       if (r.showNotice         != null) this.showNotice         = r.showNotice;
       if (r.showOriginalText   != null) this.showOriginalText   = r.showOriginalText;
       if (r.verboseLogging     != null) this._cbs.onVerboseLoggingChanged(r.verboseLogging);
+      if (r.nstExtEnabled      != null) { this.extEnabled = r.nstExtEnabled; this._cbs.onExtEnabledChanged(this.extEnabled); }
       this._cbs.onStyleChanged(this.subtitleFontSize, this.subtitleBottom, this.subtitleStyle);
     }).catch(err => this._logger.vlog('Failed to load settings: ' + err.message));
 
@@ -50,6 +52,7 @@ class SettingsManager {
       if ('showNotice'       in changes) this.showNotice       = changes.showNotice.newValue;
       if ('showOriginalText' in changes) this.showOriginalText = changes.showOriginalText.newValue;
       if ('verboseLogging'   in changes) this._cbs.onVerboseLoggingChanged(changes.verboseLogging.newValue);
+      if ('nstExtEnabled'    in changes) { this.extEnabled = !!changes.nstExtEnabled.newValue; this._cbs.onExtEnabledChanged(this.extEnabled); }
       if (styleChanged) this._cbs.onStyleChanged(this.subtitleFontSize, this.subtitleBottom, this.subtitleStyle);
     });
   }
